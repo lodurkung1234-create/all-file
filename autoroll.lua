@@ -147,7 +147,7 @@ local function updateUI()
         local mut = tostring(v.Mutation):sub(1,4)
         table.insert(opts, string.format("%d.%s|%s|%s", i, name, rarity, mut))
     end
-    Options.DeleteDropdown:SetValues(opts)
+    -- อัปเดต ListDropdown (รายการทั้งหมด ฝั่งขวา)
     Options.ListDropdown:SetValues(opts)
     SelectedDeleteIndex = 1
 end
@@ -436,17 +436,29 @@ BuyGroup:AddDivider()
 BuyGroup:AddToggle("AutoBuyToggle", { Text = "เปิดระบบ Auto Buy", Default = false, Callback = function(V) Config.MasterAutoBuy = V end })
 BuyGroup:AddDivider()
 
-BuyGroup:AddDropdown("DeleteDropdown", { 
-    Text = "เลือกรายการที่จะลบ", 
-    Values = {"(ไม่มีรายการ)"}, 
-    Default = 1, 
-    Callback = function(V) 
-        if type(V) ~= "string" then return end 
-        local idx = tonumber(V:match("^(%d+)%.")) 
-        if idx then SelectedDeleteIndex = idx end 
-    end 
+BuyGroup:AddInput("DeleteInput", {
+    Text = "พิมพ์เลขที่จะลบ (เช่น 1, 2, 3)",
+    Default = "",
+    Numeric = true,
+    Finished = false,
+    Placeholder = "เลขรายการ...",
+    Callback = function(V)
+        local idx = tonumber(V)
+        if idx then SelectedDeleteIndex = idx end
+    end
 })
-BuyGroup:AddButton({ Text = "ลบรายการที่เลือก", Func = function() local idx = SelectedDeleteIndex if #BuyList == 0 then return end if idx >= 1 and idx <= #BuyList then table.remove(BuyList, idx) updateUI() end end })
+BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", Func = function()
+    local idx = SelectedDeleteIndex
+    if #BuyList == 0 then return end
+    if idx >= 1 and idx <= #BuyList then
+        local removed = BuyList[idx]
+        table.remove(BuyList, idx)
+        updateUI()
+        UI_StatusLabel:SetText("สถานะ: ลบ " .. removed.Name .. " แล้ว")
+    else
+        UI_StatusLabel:SetText("สถานะ: เลขที่ใส่ไม่ถูกต้อง (1-" .. #BuyList .. ")")
+    end
+end })
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
