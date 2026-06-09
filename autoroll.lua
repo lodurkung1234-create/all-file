@@ -103,17 +103,13 @@ local function getMyPlot()
     for _, plot in pairs(workspace.Plots:GetChildren()) do
         for _, desc in pairs(plot:GetDescendants()) do
             if desc:IsA("TextLabel") and desc.Text ~= "" then
+                -- ตัด "'s Base" ออกแล้ว exact match เท่านั้น
+                -- ป้องกัน "Locky" match กับ "Lockyyyyyyyyy"
                 local t = desc.Text:gsub("'s Base", ""):gsub("%s+", "")
                 local dn = player.DisplayName:gsub("%s+", "")
                 local pn = player.Name:gsub("%s+", "")
                 if t == dn or t == pn then
                     return plot
-                end
-            end
-        end
-    end
-    return nil
-end
                 end
             end
         end
@@ -143,10 +139,13 @@ local function getUnits()
 end
 
 local function updateUI()
-    -- แสดงรายการผ่าน dropdown เท่านั้น (ไม่ใช้ label เพราะล้นกรอบ)
     local opts = #BuyList == 0 and {"(ไม่มีรายการ)"} or {}
     for i, v in ipairs(BuyList) do
-        table.insert(opts, string.format("%d. %s | %s | %s", i, tostring(v.Name), tostring(v.Rarity), tostring(v.Mutation)))
+        -- ชื่อสั้นลงเพื่อให้ dropdown แสดงได้ครบ
+        local name = tostring(v.Name)
+        local rarity = tostring(v.Rarity):sub(1,4)  -- ตัดให้สั้น เช่น "Lege"
+        local mut = tostring(v.Mutation):sub(1,4)
+        table.insert(opts, string.format("%d.%s|%s|%s", i, name, rarity, mut))
     end
     Options.DeleteDropdown:SetValues(opts)
     Options.ListDropdown:SetValues(opts)
@@ -255,8 +254,7 @@ local function walkToPlot()
 end
 
 local function tryBuyChar(charModel, unitName, rarity, mutation, price)
-    -- เดินไปหา plot ก่อนซื้อ
-    walkToPlot()
+    -- walkToPlot() -- ปิดไว้ก่อน เกมมี TP อัตโนมัติอยู่แล้ว
 
     local prompt = charModel:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
@@ -359,7 +357,27 @@ RollGroup:AddToggle("AutoRollToggle", {
                     local myPlot = getMyPlot()
                     if myPlot then
                         local prompt = myPlot:FindFirstChild("RollPrompt", true)
-                        if prompt then fireproximityprompt(prompt) end
+                        if prompt and prompt.Parent:IsA("BasePart") then
+                            local char = game.Players.LocalPlayer.Character
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                            if hrp and hum then
+                                local dist = (hrp.Position - prompt.Parent.Position).Magnitude
+                                -- ถ้าไกลเกิน MaxActivationDistance ให้เดินเข้าไปก่อน
+                                if dist > prompt.MaxActivationDistance then
+                                    UI_StatusLabel:SetText("สถานะ: กำลังเดินไปหา Roll Button...")
+                                    hum:MoveTo(prompt.Parent.Position)
+                                    -- รอจนถึงหรือ timeout 5 วิ
+                                    local waited = 0
+                                    repeat
+                                        task.wait(0.1)
+                                        waited = waited + 0.1
+                                        dist = (hrp.Position - prompt.Parent.Position).Magnitude
+                                    until dist <= prompt.MaxActivationDistance or waited >= 5
+                                end
+                            end
+                            fireproximityprompt(prompt)
+                        end
                     end
                     task.wait(Config.RollDelay)
                 end
@@ -666,13 +684,24 @@ SaveManager:LoadAutoloadConfig()
 -- 🌊 Auto Start Wave เมื่อเข้าเกม
 -- ==========================================
 task.spawn(function()
-    task.wait(3) -- รอให้เกมโหลดก่อน
-    local ok, err = pcall(function()
-        game:GetService("ReplicatedStorage").Remotes.Start.StartWave:FireServer()
-    end)
-    if ok then
-        print("[AutoStart] ส่ง StartWave สำเร็จ!")
+    local RS = game:GetService("ReplicatedStorage")
+    local startWave = nil
+    local tries = 0
+    repeat
+        pcall(function()
+            startWave = RS.Remotes.Start.StartWave
+        end)
+        if not startWave then task.wait(1) end
+        tries = tries + 1
+    until startWave or tries >= 15
+
+    if startWave then
+        task.wait(2)
+        pcall(function()
+            startWave:FireServer()
+            print("[AutoStart] ส่ง StartWave สำเร็จ!")
+        end)
     else
-        print("[AutoStart] ส่งไม่ได้:", err)
+        print("[AutoStart] หา StartWave ไม่เจอ")
     end
 end)
