@@ -108,7 +108,11 @@ local function getMyPlot()
                 local bg = billboard:FindFirstChildWhichIsA("BillboardGui")
                 if bg then
                     local text = bg:FindFirstChildWhichIsA("TextLabel")
-                    if text and (text.Text:find(player.DisplayName) or text.Text:find(player.Name)) then
+                    -- exact match เท่านั้น ป้องกัน "Locky" match "Lockyyyyyyyy"
+                    local t = text.Text:gsub("'s Base", ""):gsub("%s+", "")
+                    local dn = player.DisplayName:gsub("%s+", "")
+                    local pn = player.Name:gsub("%s+", "")
+                    if t == dn or t == pn then
                         return plot
                     end
                 end
