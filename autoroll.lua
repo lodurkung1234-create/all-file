@@ -101,20 +101,19 @@ end
 local function getMyPlot()
     local player = game.Players.LocalPlayer
     for _, plot in pairs(workspace.Plots:GetChildren()) do
-        local misc = plot:FindFirstChild("Misc")
-        if misc then
-            local billboard = misc:FindFirstChild("Billboard")
-            if billboard then
-                local bg = billboard:FindFirstChildWhichIsA("BillboardGui")
-                if bg then
-                    local text = bg:FindFirstChildWhichIsA("TextLabel")
-                    -- exact match เท่านั้น ป้องกัน "Locky" match "Lockyyyyyyyy"
-                    local t = text.Text:gsub("'s Base", ""):gsub("%s+", "")
-                    local dn = player.DisplayName:gsub("%s+", "")
-                    local pn = player.Name:gsub("%s+", "")
-                    if t == dn or t == pn then
-                        return plot
-                    end
+        for _, desc in pairs(plot:GetDescendants()) do
+            if desc:IsA("TextLabel") and desc.Text ~= "" then
+                local t = desc.Text:gsub("'s Base", ""):gsub("%s+", "")
+                local dn = player.DisplayName:gsub("%s+", "")
+                local pn = player.Name:gsub("%s+", "")
+                if t == dn or t == pn then
+                    return plot
+                end
+            end
+        end
+    end
+    return nil
+end
                 end
             end
         end
@@ -226,21 +225,33 @@ local function walkToPlot()
     local hum = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
 
-    -- หาตำแหน่ง plot
-    local plotHRP = myPlot:FindFirstChild("HumanoidRootPart", true)
-        or myPlot:FindFirstChild("Base", true)
-        or myPlot.PrimaryPart
-    if not plotHRP then return end
-
-    -- เดินไปหา plot
-    hum:MoveTo(plotHRP.Position)
-    local dist = (hrp.Position - plotHRP.Position).Magnitude
-    local timeout = 0
-    while dist > 10 and timeout < 5 do
-        task.wait(0.2)
-        dist = (hrp.Position - plotHRP.Position).Magnitude
-        timeout = timeout + 0.2
+    -- หา Roll model ก่อน ถ้าไม่มีใช้ BasePart แรกที่เจอ
+    local targetPart = nil
+    local rollModel = myPlot:FindFirstChild("Roll")
+    if rollModel then
+        targetPart = rollModel.PrimaryPart or rollModel:FindFirstChildWhichIsA("BasePart")
     end
+    if not targetPart then
+        targetPart = myPlot:FindFirstChildWhichIsA("BasePart", true)
+    end
+    if not targetPart then return end
+
+    -- ✅ ถ้าอยู่ใกล้แล้ว (< 15 studs) ไม่ต้องเดิน
+    if (hrp.Position - targetPart.Position).Magnitude < 15 then return end
+
+    -- ⏸ หยุด Roll ระหว่างเดิน
+    local wasRolling = Config.AutoRoll
+    Config.AutoRoll = false
+
+    hum:MoveTo(targetPart.Position)
+    local timeout = 0
+    repeat
+        task.wait(0.2)
+        timeout = timeout + 0.2
+    until (hrp.Position - targetPart.Position).Magnitude < 15 or timeout >= 6
+
+    -- ▶️ เปิด Roll กลับถ้าเปิดอยู่ก่อนหน้า
+    Config.AutoRoll = wasRolling
 end
 
 local function tryBuyChar(charModel, unitName, rarity, mutation, price)
