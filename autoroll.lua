@@ -52,7 +52,8 @@ end)
 -- ==========================================
 -- ⚙️ ค่าเริ่มต้นระบบ
 -- ==========================================
-getgenv().Config = { 
+-- ใช้ local แทน getgenv() ป้องกัน shared ข้าม instance
+local Config = { 
     AutoRoll = false, 
     RollDelay = 1, 
     MasterAutoBuy = false, 
@@ -64,14 +65,14 @@ getgenv().Config = {
     WebhookURL = "",
     WebhookEnabled = false,
 }
-getgenv().BuyList = {}
-getgenv().TempName, getgenv().TempRarity, getgenv().TempMut = "Any", "Any", "Any"
-getgenv().SelectedDeleteIndex = 1
+local BuyList = {}
+local TempName, TempRarity, TempMut = "Any", "Any", "Any"
+local SelectedDeleteIndex = 1
 
-getgenv().WaitingForPriority = false 
-getgenv().CurrentPriorityLevel = 0 
-getgenv().CurrentPriorityUnit = nil
-getgenv().PriorityTargetName = ""
+local WaitingForPriority = false 
+local CurrentPriorityLevel = 0 
+local CurrentPriorityUnit = nil
+local PriorityTargetName = ""
 
 -- ==========================================
 -- 💰 Helper Functions
@@ -140,13 +141,13 @@ end
 
 local function updateUI()
     -- แสดงรายการผ่าน dropdown เท่านั้น (ไม่ใช้ label เพราะล้นกรอบ)
-    local opts = #getgenv().BuyList == 0 and {"(ไม่มีรายการ)"} or {}
-    for i, v in ipairs(getgenv().BuyList) do
+    local opts = #BuyList == 0 and {"(ไม่มีรายการ)"} or {}
+    for i, v in ipairs(BuyList) do
         table.insert(opts, string.format("%d. %s | %s | %s", i, tostring(v.Name), tostring(v.Rarity), tostring(v.Mutation)))
     end
     Options.DeleteDropdown:SetValues(opts)
     Options.ListDropdown:SetValues(opts)
-    getgenv().SelectedDeleteIndex = 1
+    SelectedDeleteIndex = 1
 end
 
 -- ==========================================
@@ -155,8 +156,8 @@ end
 local webhookLogLines = {}
 
 local function sendWebhook(unitName, rarity, mutation, price)
-    if not getgenv().Config.WebhookEnabled then return end
-    local url = getgenv().Config.WebhookURL
+    if not Config.WebhookEnabled then return end
+    local url = Config.WebhookURL
     if not url or url == "" then return end
 
     local player = game.Players.LocalPlayer
@@ -236,30 +237,30 @@ end
 -- ==========================================
 task.spawn(function()
     while true do
-        if getgenv().WaitingForPriority then
-            if getgenv().CurrentPriorityUnit and getgenv().CurrentPriorityUnit.Parent then
-                local charModel = getgenv().CurrentPriorityUnit
+        if WaitingForPriority then
+            if CurrentPriorityUnit and CurrentPriorityUnit.Parent then
+                local charModel = CurrentPriorityUnit
                 local priceLabel = charModel:FindFirstChild("Price", true)
                 local price = (priceLabel and priceLabel.Text) and parsePrice(priceLabel.Text) or 0
                 local currentMoney = getMoney()
 
                 if currentMoney >= price then
-                    UI_StatusLabel:SetText("สถานะ: เงินพอแล้ว! กำลังซื้อ " .. getgenv().PriorityTargetName .. "...")
-                    tryBuyChar(charModel, getgenv().PriorityTargetName, "Priority", "Priority", price)
-                    getgenv().WaitingForPriority = false
-                    getgenv().CurrentPriorityLevel = 0
-                    getgenv().CurrentPriorityUnit = nil
+                    UI_StatusLabel:SetText("สถานะ: เงินพอแล้ว! กำลังซื้อ " .. PriorityTargetName .. "...")
+                    tryBuyChar(charModel, PriorityTargetName, "Priority", "Priority", price)
+                    WaitingForPriority = false
+                    CurrentPriorityLevel = 0
+                    CurrentPriorityUnit = nil
                 else
                     UI_StatusLabel:SetText(string.format(
                         "สถานะ: ⏸ รอเงินซื้อ %s... (%.1fK / %.1fK) [Roll หยุดชั่วคราว]",
-                        getgenv().PriorityTargetName, currentMoney/1000, price/1000
+                        PriorityTargetName, currentMoney/1000, price/1000
                     ))
                 end
             else
-                UI_StatusLabel:SetText("สถานะ: " .. getgenv().PriorityTargetName .. " หายไปแล้ว กำลัง Roll ต่อ...")
-                getgenv().WaitingForPriority = false
-                getgenv().CurrentPriorityLevel = 0
-                getgenv().CurrentPriorityUnit = nil
+                UI_StatusLabel:SetText("สถานะ: " .. PriorityTargetName .. " หายไปแล้ว กำลัง Roll ต่อ...")
+                WaitingForPriority = false
+                CurrentPriorityLevel = 0
+                CurrentPriorityUnit = nil
             end
         end
         task.wait(0.5)
@@ -273,25 +274,25 @@ local function handlePriorityUnit(charModel, rarityText, mutationText)
     local unitLevel = 0
     local targetName = ""
 
-    if getgenv().Config.SecretPriority and rarityText == "Secret" then
-        if (mutationText == "Dragonborn" and getgenv().Config.MutDragonborn) or
-           (mutationText == "Beast" and getgenv().Config.MutBeast) or
-           (mutationText == "Arrancar" and getgenv().Config.MutArrancar) then
+    if Config.SecretPriority and rarityText == "Secret" then
+        if (mutationText == "Dragonborn" and Config.MutDragonborn) or
+           (mutationText == "Beast" and Config.MutBeast) or
+           (mutationText == "Arrancar" and Config.MutArrancar) then
             unitLevel = 1
             targetName = "Secret (" .. mutationText .. ")"
         end
     end
 
-    if getgenv().Config.GodPriority and rarityText == "God" then
+    if Config.GodPriority and rarityText == "God" then
         unitLevel = 2
         targetName = "God"
     end
 
-    if unitLevel > getgenv().CurrentPriorityLevel then
-        getgenv().CurrentPriorityLevel = unitLevel
-        getgenv().CurrentPriorityUnit = charModel
-        getgenv().PriorityTargetName = targetName
-        getgenv().WaitingForPriority = true
+    if unitLevel > CurrentPriorityLevel then
+        CurrentPriorityLevel = unitLevel
+        CurrentPriorityUnit = charModel
+        PriorityTargetName = targetName
+        WaitingForPriority = true
     end
 end
 
@@ -302,12 +303,12 @@ RollGroup:AddToggle("AutoRollToggle", {
     Text = "เปิด Auto Roll",
     Default = false,
     Callback = function(V)
-        getgenv().Config.AutoRoll = V
+        Config.AutoRoll = V
         if V then
             task.spawn(function()
-                while getgenv().Config.AutoRoll do
-                    if getgenv().WaitingForPriority then
-                        UI_StatusLabel:SetText("สถานะ: ⏸ หยุด Roll รอซื้อ " .. getgenv().PriorityTargetName)
+                while Config.AutoRoll do
+                    if WaitingForPriority then
+                        UI_StatusLabel:SetText("สถานะ: ⏸ หยุด Roll รอซื้อ " .. PriorityTargetName)
                         task.wait(0.5)
                         continue
                     end
@@ -317,30 +318,30 @@ RollGroup:AddToggle("AutoRollToggle", {
                         local prompt = myPlot:FindFirstChild("RollPrompt", true)
                         if prompt then fireproximityprompt(prompt) end
                     end
-                    task.wait(getgenv().Config.RollDelay)
+                    task.wait(Config.RollDelay)
                 end
                 UI_StatusLabel:SetText("สถานะ: หยุดทำงาน")
             end)
         else
-            getgenv().WaitingForPriority = false
-            getgenv().CurrentPriorityLevel = 0
-            getgenv().CurrentPriorityUnit = nil
+            WaitingForPriority = false
+            CurrentPriorityLevel = 0
+            CurrentPriorityUnit = nil
             UI_StatusLabel:SetText("สถานะ: หยุดทำงาน")
         end
     end
 })
 
-RollGroup:AddSlider("RollDelay", { Text = "ความเร็ว Roll", Default = 1, Min = 0.1, Max = 3, Rounding = 1, Callback = function(V) getgenv().Config.RollDelay = V end })
+RollGroup:AddSlider("RollDelay", { Text = "ความเร็ว Roll", Default = 1, Min = 0.1, Max = 3, Rounding = 1, Callback = function(V) Config.RollDelay = V end })
 RollGroup:AddDivider()
 
 RollGroup:AddToggle("GodPriorityToggle", {
     Text = "God Priority (ระดับสูงสุด!)",
     Default = false,
     Callback = function(V) 
-        getgenv().Config.GodPriority = V 
-        if not V and getgenv().CurrentPriorityLevel == 2 then 
-            getgenv().WaitingForPriority = false
-            getgenv().CurrentPriorityLevel = 0
+        Config.GodPriority = V 
+        if not V and CurrentPriorityLevel == 2 then 
+            WaitingForPriority = false
+            CurrentPriorityLevel = 0
         end
     end
 })
@@ -349,29 +350,29 @@ RollGroup:AddToggle("SecretPriorityToggle", {
     Text = "Secret Priority (รอซื้อ Secret)",
     Default = false,
     Callback = function(V) 
-        getgenv().Config.SecretPriority = V 
-        if not V and getgenv().CurrentPriorityLevel == 1 then 
-            getgenv().WaitingForPriority = false
-            getgenv().CurrentPriorityLevel = 0
+        Config.SecretPriority = V 
+        if not V and CurrentPriorityLevel == 1 then 
+            WaitingForPriority = false
+            CurrentPriorityLevel = 0
         end
     end
 })
 
 RollGroup:AddLabel("เลือก Mutation สำหรับ Secret Priority:")
-RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar (สีม่วง)", Default = false, Callback = function(V) getgenv().Config.MutArrancar = V end })
-RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast (สีแดง)", Default = false, Callback = function(V) getgenv().Config.MutBeast = V end })
-RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn (สีทอง)", Default = false, Callback = function(V) getgenv().Config.MutDragonborn = V end })
+RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar (สีม่วง)", Default = false, Callback = function(V) Config.MutArrancar = V end })
+RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast (สีแดง)", Default = false, Callback = function(V) Config.MutBeast = V end })
+RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn (สีทอง)", Default = false, Callback = function(V) Config.MutDragonborn = V end })
 
 -- ==========================================
 -- 🛒 Auto Buy Tab
 -- ==========================================
-BuyGroup:AddDropdown("UnitDropdown", { Text = "ชื่อตัวละคร", Values = getUnits(), Default = 1, Searchable = true, Callback = function(V) getgenv().TempName = V end })
-BuyGroup:AddDropdown("RarityDropdown", { Text = "ระดับ (Rarity)", Values = {"Any", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God"}, Default = 1, Callback = function(V) getgenv().TempRarity = V end })
-BuyGroup:AddDropdown("MutationDropdown", { Text = "Mutation", Values = {"Any", "Normal", "Gold", "Diamond", "Dragonborn", "Beast", "Arrancar", "Admin"}, Default = 1, Callback = function(V) getgenv().TempMut = V end })
+BuyGroup:AddDropdown("UnitDropdown", { Text = "ชื่อตัวละคร", Values = getUnits(), Default = 1, Searchable = true, Callback = function(V) TempName = V end })
+BuyGroup:AddDropdown("RarityDropdown", { Text = "ระดับ (Rarity)", Values = {"Any", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God"}, Default = 1, Callback = function(V) TempRarity = V end })
+BuyGroup:AddDropdown("MutationDropdown", { Text = "Mutation", Values = {"Any", "Normal", "Gold", "Diamond", "Dragonborn", "Beast", "Arrancar", "Admin"}, Default = 1, Callback = function(V) TempMut = V end })
 
-BuyGroup:AddButton({ Text = "เพิ่มรายการ", Func = function() table.insert(getgenv().BuyList, { Name = getgenv().TempName, Rarity = getgenv().TempRarity, Mutation = getgenv().TempMut }) updateUI() end })
+BuyGroup:AddButton({ Text = "เพิ่มรายการ", Func = function() table.insert(BuyList, { Name = TempName, Rarity = TempRarity, Mutation = TempMut }) updateUI() end })
 BuyGroup:AddDivider()
-BuyGroup:AddToggle("AutoBuyToggle", { Text = "เปิดระบบ Auto Buy", Default = false, Callback = function(V) getgenv().Config.MasterAutoBuy = V end })
+BuyGroup:AddToggle("AutoBuyToggle", { Text = "เปิดระบบ Auto Buy", Default = false, Callback = function(V) Config.MasterAutoBuy = V end })
 BuyGroup:AddDivider()
 
 BuyGroup:AddDropdown("DeleteDropdown", { 
@@ -381,11 +382,11 @@ BuyGroup:AddDropdown("DeleteDropdown", {
     Callback = function(V) 
         if type(V) ~= "string" then return end 
         local idx = tonumber(V:match("^(%d+)%.")) 
-        if idx then getgenv().SelectedDeleteIndex = idx end 
+        if idx then SelectedDeleteIndex = idx end 
     end 
 })
-BuyGroup:AddButton({ Text = "ลบรายการที่เลือก", Func = function() local idx = getgenv().SelectedDeleteIndex if #getgenv().BuyList == 0 then return end if idx >= 1 and idx <= #getgenv().BuyList then table.remove(getgenv().BuyList, idx) updateUI() end end })
-BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() getgenv().BuyList = {} updateUI() end })
+BuyGroup:AddButton({ Text = "ลบรายการที่เลือก", Func = function() local idx = SelectedDeleteIndex if #BuyList == 0 then return end if idx >= 1 and idx <= #BuyList then table.remove(BuyList, idx) updateUI() end end })
+BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
 -- 🔔 Webhook Tab
@@ -394,7 +395,7 @@ WebhookGroup:AddToggle("WebhookEnabledToggle", {
     Text = "เปิดการแจ้งเตือน Discord",
     Default = false,
     Callback = function(V)
-        getgenv().Config.WebhookEnabled = V
+        Config.WebhookEnabled = V
     end
 })
 
@@ -407,14 +408,14 @@ WebhookGroup:AddInput("WebhookURLInput", {
     Finished = true,  -- อัปเดตเมื่อกด Enter
     Placeholder = "https://discord.com/api/webhooks/...",
     Callback = function(V)
-        getgenv().Config.WebhookURL = V
+        Config.WebhookURL = V
     end
 })
 
 WebhookGroup:AddButton({ 
     Text = "🧪 ทดสอบ Webhook", 
     Func = function()
-        if getgenv().Config.WebhookURL == "" then
+        if Config.WebhookURL == "" then
             UI_WebhookLog:SetText("❌ กรุณาใส่ Webhook URL ก่อน")
             return
         end
@@ -434,10 +435,10 @@ WebhookGroup:AddLabel("4. กด Enter แล้วกดทดสอบ")
 -- 📡 Core Event Listener [แก้ไข task.wait + checkAndBuy]
 -- ==========================================
 local function checkAndBuy(charModel, name, rarity, mutation, price)
-    if not getgenv().Config.MasterAutoBuy then return end
+    if not Config.MasterAutoBuy then return end
     -- แก้ไข: ไม่ซื้อถ้ากำลังรอ Priority อยู่
-    if getgenv().WaitingForPriority then return end
-    for _, item in ipairs(getgenv().BuyList) do
+    if WaitingForPriority then return end
+    for _, item in ipairs(BuyList) do
         if (item.Name == "Any" or name == item.Name) and
            (item.Rarity == "Any" or rarity == item.Rarity) and
            (item.Mutation == "Any" or mutation == item.Mutation) then
@@ -447,43 +448,48 @@ local function checkAndBuy(charModel, name, rarity, mutation, price)
     end
 end
 
-for _, plot in pairs(workspace.Plots:GetChildren()) do
-    local charsFolder = plot:FindFirstChild("Characters") or plot:WaitForChild("Characters", 5)
-    if charsFolder then
-        charsFolder.ChildAdded:Connect(function(char)
-            -- รอ Head > CharacterUI > Frame โหลดเข้ามาจริงๆ
-            local frame = nil
-            local tries = 0
-            repeat
-                local head = char:FindFirstChild("Head")
-                local charUI = head and head:FindFirstChild("CharacterUI")
-                frame = charUI and charUI:FindFirstChild("Frame")
-                if not frame then task.wait(0.1) end
-                tries = tries + 1
-            until frame or tries >= 15
+-- ==========================================
+-- 📡 Listen เฉพาะ plot ของตัวเองเท่านั้น
+-- ==========================================
+task.spawn(function()
+    -- รอจนหา plot ของตัวเองเจอก่อน
+    local myPlot = nil
+    repeat
+        myPlot = getMyPlot()
+        task.wait(1)
+    until myPlot
 
-            if frame then
-                -- char.Name = ชื่อจริงของตัวละคร (Instance name)
-                local uName = char.Name
-                local rarityLabel = frame:FindFirstChild("Rarity")
-                local mutLabel = frame:FindFirstChild("Mutation")
-                local uRarity = rarityLabel and rarityLabel.Text or "Normal"
-                local uMut = (mutLabel and mutLabel.Visible) and mutLabel.Text or "Normal"
-                local priceLabel = frame:FindFirstChild("Price")
-                local uPrice = (priceLabel and priceLabel.Text) and parsePrice(priceLabel.Text) or 0
+    local charsFolder = myPlot:FindFirstChild("Characters") or myPlot:WaitForChild("Characters", 5)
+    if not charsFolder then return end
 
-                print("[Debug] Name:", uName, "| Rarity:", uRarity, "| Mut:", uMut, "| Price:", uPrice)
+    charsFolder.ChildAdded:Connect(function(char)
+        -- รอ Head > CharacterUI > Frame โหลดเข้ามาจริงๆ
+        local frame = nil
+        local tries = 0
+        repeat
+            local head = char:FindFirstChild("Head")
+            local charUI = head and head:FindFirstChild("CharacterUI")
+            frame = charUI and charUI:FindFirstChild("Frame")
+            if not frame then task.wait(0.1) end
+            tries = tries + 1
+        until frame or tries >= 15
 
-                checkAndBuy(char, uName, uRarity, uMut, uPrice)
+        if frame then
+            local uName = char.Name
+            local rarityLabel = frame:FindFirstChild("Rarity")
+            local mutLabel = frame:FindFirstChild("Mutation")
+            local uRarity = rarityLabel and rarityLabel.Text or "Normal"
+            local uMut = (mutLabel and mutLabel.Visible) and mutLabel.Text or "Normal"
+            local priceLabel = frame:FindFirstChild("Price")
+            local uPrice = (priceLabel and priceLabel.Text) and parsePrice(priceLabel.Text) or 0
 
-                local currentMyPlot = getMyPlot()
-                if currentMyPlot and plot == currentMyPlot then
-                    handlePriorityUnit(char, uRarity, uMut)
-                end
-            end
-        end)
-    end
-end
+            print("[Debug] Name:", uName, "| Rarity:", uRarity, "| Mut:", uMut, "| Price:", uPrice)
+
+            checkAndBuy(char, uName, uRarity, uMut, uPrice)
+            handlePriorityUnit(char, uRarity, uMut)
+        end
+    end)
+end)
 
 -- ==========================================
 -- 🧪 Debug Priority Tab
@@ -505,10 +511,10 @@ DebugGroup:AddButton({
             UI_StatusLabel:SetText("สถานะ: [Debug] ไม่มีตัวใน plot ลอง Roll ก่อน")
             return
         end
-        getgenv().CurrentPriorityLevel = 2
-        getgenv().CurrentPriorityUnit = firstChar
-        getgenv().PriorityTargetName = "God [DEBUG:" .. firstChar.Name .. "]"
-        getgenv().WaitingForPriority = true
+        CurrentPriorityLevel = 2
+        CurrentPriorityUnit = firstChar
+        PriorityTargetName = "God [DEBUG:" .. firstChar.Name .. "]"
+        WaitingForPriority = true
         UI_StatusLabel:SetText("สถานะ: [Debug] จำลอง God = " .. firstChar.Name)
     end
 })
@@ -527,10 +533,10 @@ DebugGroup:AddButton({
             UI_StatusLabel:SetText("สถานะ: [Debug] ไม่มีตัวใน plot")
             return
         end
-        getgenv().CurrentPriorityLevel = 1
-        getgenv().CurrentPriorityUnit = firstChar
-        getgenv().PriorityTargetName = "Secret [DEBUG:" .. firstChar.Name .. "]"
-        getgenv().WaitingForPriority = true
+        CurrentPriorityLevel = 1
+        CurrentPriorityUnit = firstChar
+        PriorityTargetName = "Secret [DEBUG:" .. firstChar.Name .. "]"
+        WaitingForPriority = true
         UI_StatusLabel:SetText("สถานะ: [Debug] จำลอง Secret = " .. firstChar.Name)
     end
 })
@@ -540,10 +546,10 @@ DebugGroup:AddDivider()
 DebugGroup:AddButton({
     Text = "Reset Priority",
     Func = function()
-        getgenv().WaitingForPriority = false
-        getgenv().CurrentPriorityLevel = 0
-        getgenv().CurrentPriorityUnit = nil
-        getgenv().PriorityTargetName = ""
+        WaitingForPriority = false
+        CurrentPriorityLevel = 0
+        CurrentPriorityUnit = nil
+        PriorityTargetName = ""
         UI_StatusLabel:SetText("สถานะ: [Debug] Reset Priority แล้ว")
     end
 })
@@ -573,9 +579,9 @@ SaveManager.Save = function(self, name)
             if not isfolder("AutoRollPRO/buylists") then 
                 makefolder("AutoRollPRO/buylists") 
             end
-            writefile("AutoRollPRO/buylists/" .. name .. ".json", HttpService:JSONEncode(getgenv().BuyList))
+            writefile("AutoRollPRO/buylists/" .. name .. ".json", HttpService:JSONEncode(BuyList))
             -- เซฟ webhook url แยก
-            writefile("AutoRollPRO/buylists/" .. name .. "_webhook.txt", getgenv().Config.WebhookURL or "")
+            writefile("AutoRollPRO/buylists/" .. name .. "_webhook.txt", Config.WebhookURL or "")
         end)
     end
     return success
@@ -588,15 +594,15 @@ SaveManager.Load = function(self, name)
         pcall(function()
             local path = "AutoRollPRO/buylists/" .. name .. ".json"
             if isfile(path) then
-                getgenv().BuyList = HttpService:JSONDecode(readfile(path))
+                BuyList = HttpService:JSONDecode(readfile(path))
             else
-                getgenv().BuyList = {}
+                BuyList = {}
             end
             -- โหลด webhook url
             local whPath = "AutoRollPRO/buylists/" .. name .. "_webhook.txt"
             if isfile(whPath) then
-                getgenv().Config.WebhookURL = readfile(whPath)
-                Options.WebhookURLInput:SetValue(getgenv().Config.WebhookURL)
+                Config.WebhookURL = readfile(whPath)
+                Options.WebhookURLInput:SetValue(Config.WebhookURL)
             end
             updateUI() 
         end)
