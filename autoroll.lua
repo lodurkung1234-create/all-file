@@ -216,8 +216,37 @@ end
 -- ==========================================
 -- 🛒 tryBuyChar [แก้ไข: หา Prompt ทั้ง model + log]
 -- ==========================================
+local function walkToPlot()
+    local myPlot = getMyPlot()
+    if not myPlot then return end
+    local player = game.Players.LocalPlayer
+    local char = player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    -- หาตำแหน่ง plot
+    local plotHRP = myPlot:FindFirstChild("HumanoidRootPart", true)
+        or myPlot:FindFirstChild("Base", true)
+        or myPlot.PrimaryPart
+    if not plotHRP then return end
+
+    -- เดินไปหา plot
+    hum:MoveTo(plotHRP.Position)
+    local dist = (hrp.Position - plotHRP.Position).Magnitude
+    local timeout = 0
+    while dist > 10 and timeout < 5 do
+        task.wait(0.2)
+        dist = (hrp.Position - plotHRP.Position).Magnitude
+        timeout = timeout + 0.2
+    end
+end
+
 local function tryBuyChar(charModel, unitName, rarity, mutation, price)
-    -- แก้ไข: หา ProximityPrompt ใน charModel ทั้งหมด ไม่ใช่แค่ใน HRP
+    -- เดินไปหา plot ก่อนซื้อ
+    walkToPlot()
+
     local prompt = charModel:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
         local oldDist = prompt.MaxActivationDistance
@@ -226,7 +255,6 @@ local function tryBuyChar(charModel, unitName, rarity, mutation, price)
         task.wait(0.1)
         prompt.MaxActivationDistance = oldDist
         UI_StatusLabel:SetText("สถานะ: ✅ ซื้อ " .. (unitName or "?") .. " สำเร็จ!")
-        -- ส่ง webhook
         sendWebhook(unitName or "Unknown", rarity or "?", mutation or "?", price or 0)
         print("[AutoBuy] ✅ ซื้อสำเร็จ:", unitName, rarity, mutation)
         return true
