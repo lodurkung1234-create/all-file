@@ -19,6 +19,7 @@ local Window = Library:CreateWindow({
 local Tabs = {
     Main = Window:AddTab("Auto Roll", "play"),
     Buy = Window:AddTab("Auto Buy", "shopping-cart"),
+    Event = Window:AddTab("Auto Event", "star"),
     Webhook = Window:AddTab("Webhook", "bell"),
     Debug = Window:AddTab("Debug", "settings"),
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
@@ -28,6 +29,7 @@ local RollGroup = Tabs.Main:AddLeftGroupbox("Auto Roll")
 local StatusGroup = Tabs.Main:AddRightGroupbox("สถานะ")
 local BuyGroup = Tabs.Buy:AddLeftGroupbox("ตั้งค่าการซื้อ")
 local ListGroup = Tabs.Buy:AddRightGroupbox("รายการที่บันทึก")
+local EventGroup = Tabs.Event:AddLeftGroupbox("ตั้งค่ากิจกรรม")
 local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
 local WebhookLogGroup = Tabs.Webhook:AddRightGroupbox("Log การแจ้งเตือน")
 local DebugGroup = Tabs.Debug:AddLeftGroupbox("Debug Tools")
@@ -44,7 +46,6 @@ task.spawn(function()
     game:GetService("Players").LocalPlayer.Idled:Connect(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
-        print("[Anti-AFK] ป้องกันการหลุดออกจากเซิร์ฟเวอร์!")
     end)
 end)
 
@@ -55,6 +56,7 @@ local Config = {
     AutoRoll = false, 
     RollDelay = 1, 
     MasterAutoBuy = false, 
+    AutoBuharaEvent = false,
     GodPriority = false,
     SecretPriority = false,
     MutDragonborn = false,
@@ -68,6 +70,7 @@ local TempName, TempRarity, TempMut = "Any", "Any", "Any"
 local SelectedDeleteIndex = 1
 
 local WaitingForPriority = false 
+local IsDoingEvent = false 
 local CurrentPriorityLevel = 0 
 local CurrentPriorityUnit = nil
 local PriorityTargetName = ""
@@ -104,24 +107,29 @@ local function getMyPlot()
                 local t = desc.Text:gsub("'s Base", ""):gsub("%s+", "")
                 local dn = player.DisplayName:gsub("%s+", "")
                 local pn = player.Name:gsub("%s+", "")
-                if t == dn or t == pn then
-                    return plot
-                end
+                if t == dn or t == pn then return plot end
             end
         end
     end
     return nil
 end
 
+local function firePrompt(prompt)
+    if prompt and prompt:IsA("ProximityPrompt") then
+        local oldDist = prompt.MaxActivationDistance
+        prompt.MaxActivationDistance = 9999
+        fireproximityprompt(prompt)
+        task.wait(0.1)
+        prompt.MaxActivationDistance = oldDist
+    end
+end
+
 -- ==========================================
--- 🔍 Dynamic Data Fetcher (ค้นหาตัวละคร/Mut ใหม่จากเกมอัตโนมัติ)
+-- 🔍 Dynamic Data Fetcher 
 -- ==========================================
 local function getGameData()
-    local units = {}
-    local mutations = {}
+    local units, mutations = {}, {}
     local RS = game:GetService("ReplicatedStorage")
-    
-    -- ข้อมูลพื้นฐานเผื่อดึงไม่ติด
     local defaultMuts = {"Normal", "Gold", "Diamond", "Dragonborn", "Beast", "Arrancar", "Admin"}
     for _, v in ipairs(defaultMuts) do table.insert(mutations, v) end
 
@@ -149,17 +157,13 @@ local function getGameData()
     end
     
     local function clean(t)
-        local hash = {}
-        local res = {}
-        for _, v in ipairs(t) do 
-            if not hash[v] then hash[v] = true; table.insert(res, v) end 
-        end
+        local hash, res = {}, {}
+        for _, v in ipairs(t) do if not hash[v] then hash[v] = true; table.insert(res, v) end end
         table.sort(res)
         local final = {"Any"}
         for _, v in ipairs(res) do if v ~= "Any" then table.insert(final, v) end end
         return final
     end
-    
     return clean(units), clean(mutations)
 end
 
@@ -168,9 +172,7 @@ local UnitList, MutList = getGameData()
 local function updateUI()
     local opts = #BuyList == 0 and {"(ไม่มีรายการ)"} or {}
     for i, v in ipairs(BuyList) do
-        local name = tostring(v.Name)
-        local rarity = tostring(v.Rarity):sub(1,4)
-        local mut = tostring(v.Mutation):sub(1,4)
+        local name, rarity, mut = tostring(v.Name), tostring(v.Rarity):sub(1,4), tostring(v.Mutation):sub(1,4)
         table.insert(opts, string.format("%d.%s|%s|%s", i, name, rarity, mut))
     end
     Options.ListDropdown:SetValues(opts)
@@ -178,15 +180,11 @@ local function updateUI()
 end
 
 -- ==========================================
--- 🔔 Discord Webhook
+-- 🔔 Webhook
 -- ==========================================
 local webhookLogLines = {}
-
 local function sendWebhook(unitName, rarity, mutation, price)
-    if not Config.WebhookEnabled then return end
-    local url = Config.WebhookURL
-    if not url or url == "" then return end
-
+    if not Config.WebhookEnabled or not Config.WebhookURL or Config.WebhookURL == "" then return end
     local player = game.Players.LocalPlayer
     local timestamp = os.date("%H:%M:%S")
 
@@ -206,50 +204,35 @@ local function sendWebhook(unitName, rarity, mutation, price)
                     { name = "💎 Mutation", value = mutation, inline = true },
                     { name = "💰 ราคา", value = tostring(price), inline = true },
                     { name = "🎮 ผู้เล่น", value = player.Name, inline = true },
-                    { name = "🕐 เวลา", value = timestamp, inline = true },
                 },
                 footer = { text = "Auto Roll PRO" }
             }}
         })
         pcall(function()
-            if request then
-                request({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
-            elseif syn and syn.request then
-                syn.request({ Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
-            else
-                game:HttpGet(url .. " POST " .. body) 
-            end
+            if request then request({ Url = Config.WebhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
+            elseif syn and syn.request then syn.request({ Url = Config.WebhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = body })
+            else game:HttpGet(Config.WebhookURL .. " POST " .. body) end
         end)
     end)
 end
 
--- ==========================================
--- 🛒 tryBuyChar
--- ==========================================
 local function tryBuyChar(charModel, unitName, rarity, mutation, price)
     local prompt = charModel:FindFirstChildWhichIsA("ProximityPrompt", true)
     if prompt then
-        local oldDist = prompt.MaxActivationDistance
-        prompt.MaxActivationDistance = 9999
-        fireproximityprompt(prompt)
-        task.wait(0.1)
-        prompt.MaxActivationDistance = oldDist
+        firePrompt(prompt)
         UI_StatusLabel:SetText("สถานะ: ✅ ซื้อ " .. (unitName or "?") .. " สำเร็จ!")
         sendWebhook(unitName or "Unknown", rarity or "?", mutation or "?", price or 0)
-        print("[AutoBuy] ✅ ซื้อสำเร็จ:", unitName, rarity, mutation)
         return true
     end
-    UI_StatusLabel:SetText("สถานะ: ❌ ซื้อไม่ได้ ไม่เจอ Prompt")
-    print("[AutoBuy] ❌ ไม่เจอ ProximityPrompt ใน", charModel.Name)
     return false
 end
 
 -- ==========================================
--- 👑 Global Buyer Loop
+-- 👑 Priority Auto Buy Loop
 -- ==========================================
 task.spawn(function()
     while true do
-        if WaitingForPriority then
+        if WaitingForPriority and not IsDoingEvent then
             if CurrentPriorityUnit and CurrentPriorityUnit.Parent then
                 local charModel = CurrentPriorityUnit
                 local priceLabel = charModel:FindFirstChild("Price", true)
@@ -259,52 +242,29 @@ task.spawn(function()
                 if currentMoney >= price then
                     UI_StatusLabel:SetText("สถานะ: เงินพอแล้ว! กำลังซื้อ " .. PriorityTargetName .. "...")
                     tryBuyChar(charModel, PriorityTargetName, "Priority", "Priority", price)
-                    WaitingForPriority = false
-                    CurrentPriorityLevel = 0
-                    CurrentPriorityUnit = nil
+                    WaitingForPriority, CurrentPriorityLevel, CurrentPriorityUnit = false, 0, nil
                 else
-                    UI_StatusLabel:SetText(string.format(
-                        "สถานะ: ⏸ รอเงินซื้อ %s... (%.1fK / %.1fK) [Roll หยุดชั่วคราว]",
-                        PriorityTargetName, currentMoney/1000, price/1000
-                    ))
+                    UI_StatusLabel:SetText(string.format("สถานะ: ⏸ รอเงินซื้อ %s... (%.1fK/%.1fK)", PriorityTargetName, currentMoney/1000, price/1000))
                 end
             else
-                UI_StatusLabel:SetText("สถานะ: " .. PriorityTargetName .. " หายไปแล้ว กำลัง Roll ต่อ...")
-                WaitingForPriority = false
-                CurrentPriorityLevel = 0
-                CurrentPriorityUnit = nil
+                WaitingForPriority, CurrentPriorityLevel, CurrentPriorityUnit = false, 0, nil
             end
         end
         task.wait(0.5)
     end
 end)
 
--- ==========================================
--- 🎯 Smart Priority Tiers
--- ==========================================
 local function handlePriorityUnit(charModel, rarityText, mutationText)
-    local unitLevel = 0
-    local targetName = ""
-
+    local unitLevel, targetName = 0, ""
     if Config.SecretPriority and rarityText == "Secret" then
-        if (mutationText == "Dragonborn" and Config.MutDragonborn) or
-           (mutationText == "Beast" and Config.MutBeast) or
-           (mutationText == "Arrancar" and Config.MutArrancar) then
-            unitLevel = 1
-            targetName = "Secret (" .. mutationText .. ")"
+        if (mutationText == "Dragonborn" and Config.MutDragonborn) or (mutationText == "Beast" and Config.MutBeast) or (mutationText == "Arrancar" and Config.MutArrancar) then
+            unitLevel, targetName = 1, "Secret (" .. mutationText .. ")"
         end
     end
-
-    if Config.GodPriority and rarityText == "God" then
-        unitLevel = 2
-        targetName = "God"
-    end
+    if Config.GodPriority and rarityText == "God" then unitLevel, targetName = 2, "God" end
 
     if unitLevel > CurrentPriorityLevel then
-        CurrentPriorityLevel = unitLevel
-        CurrentPriorityUnit = charModel
-        PriorityTargetName = targetName
-        WaitingForPriority = true
+        CurrentPriorityLevel, CurrentPriorityUnit, PriorityTargetName, WaitingForPriority = unitLevel, charModel, targetName, true
     end
 end
 
@@ -319,161 +279,139 @@ RollGroup:AddToggle("AutoRollToggle", {
         if V then
             task.spawn(function()
                 while Config.AutoRoll do
-                    if WaitingForPriority then
-                        UI_StatusLabel:SetText("สถานะ: ⏸ หยุด Roll รอซื้อ " .. PriorityTargetName)
-                        task.wait(0.5)
-                        continue
+                    if IsDoingEvent then 
+                        UI_StatusLabel:SetText("สถานะ: 🏃‍♂️ วิ่งไปทำกิจกรรม (หยุด Roll ชั่วคราว)")
+                        task.wait(1) continue 
                     end
+                    if WaitingForPriority then task.wait(0.5) continue end
+                    
                     UI_StatusLabel:SetText("สถานะ: กำลัง Roll...")
                     local myPlot = getMyPlot()
                     if myPlot then
                         local prompt = myPlot:FindFirstChild("RollPrompt", true)
                         if prompt and prompt.Parent:IsA("BasePart") then
                             local char = game.Players.LocalPlayer.Character
-                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                            local hrp, hum = char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildWhichIsA("Humanoid")
                             if hrp and hum then
-                                local dist = (hrp.Position - prompt.Parent.Position).Magnitude
-                                if dist > prompt.MaxActivationDistance then
-                                    UI_StatusLabel:SetText("สถานะ: กำลังเดินไปหา Roll Button...")
+                                if (hrp.Position - prompt.Parent.Position).Magnitude > prompt.MaxActivationDistance then
                                     hum:MoveTo(prompt.Parent.Position)
                                     local waited = 0
-                                    repeat
-                                        task.wait(0.1)
-                                        waited = waited + 0.1
-                                        dist = (hrp.Position - prompt.Parent.Position).Magnitude
-                                    until dist <= prompt.MaxActivationDistance or waited >= 5
+                                    repeat task.wait(0.1); waited = waited + 0.1 until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 5
                                 end
                             end
-                            fireproximityprompt(prompt)
+                            firePrompt(prompt)
                         end
                     end
                     task.wait(Config.RollDelay)
                 end
                 UI_StatusLabel:SetText("สถานะ: หยุดทำงาน")
             end)
-        else
-            WaitingForPriority = false
-            CurrentPriorityLevel = 0
-            CurrentPriorityUnit = nil
-            UI_StatusLabel:SetText("สถานะ: หยุดทำงาน")
         end
     end
 })
 
 RollGroup:AddSlider("RollDelay", { Text = "ความเร็ว Roll", Default = 1, Min = 0.1, Max = 3, Rounding = 1, Callback = function(V) Config.RollDelay = V end })
 RollGroup:AddDivider()
-
-RollGroup:AddToggle("GodPriorityToggle", {
-    Text = "God Priority (ระดับสูงสุด!)",
-    Default = false,
-    Callback = function(V) 
-        Config.GodPriority = V 
-        if not V and CurrentPriorityLevel == 2 then 
-            WaitingForPriority = false
-            CurrentPriorityLevel = 0
-        end
-    end
-})
-
-RollGroup:AddToggle("SecretPriorityToggle", {
-    Text = "Secret Priority (รอซื้อ Secret)",
-    Default = false,
-    Callback = function(V) 
-        Config.SecretPriority = V 
-        if not V and CurrentPriorityLevel == 1 then 
-            WaitingForPriority = false
-            CurrentPriorityLevel = 0
-        end
-    end
-})
-
+RollGroup:AddToggle("GodPriorityToggle", { Text = "God Priority (ระดับสูงสุด!)", Default = false, Callback = function(V) Config.GodPriority = V if not V and CurrentPriorityLevel == 2 then WaitingForPriority = false CurrentPriorityLevel = 0 end end })
+RollGroup:AddToggle("SecretPriorityToggle", { Text = "Secret Priority (รอซื้อ Secret)", Default = false, Callback = function(V) Config.SecretPriority = V if not V and CurrentPriorityLevel == 1 then WaitingForPriority = false CurrentPriorityLevel = 0 end end })
 RollGroup:AddLabel("เลือก Mutation สำหรับ Secret Priority:")
-RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar (สีม่วง)", Default = false, Callback = function(V) Config.MutArrancar = V end })
-RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast (สีแดง)", Default = false, Callback = function(V) Config.MutBeast = V end })
-RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn (สีทอง)", Default = false, Callback = function(V) Config.MutDragonborn = V end })
+RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar", Default = false, Callback = function(V) Config.MutArrancar = V end })
+RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast", Default = false, Callback = function(V) Config.MutBeast = V end })
+RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn", Default = false, Callback = function(V) Config.MutDragonborn = V end })
 
 -- ==========================================
--- 🛒 Auto Buy Tab (อัปเดต Dynamic Dropdown)
+-- 🛒 Auto Buy Tab
 -- ==========================================
 BuyGroup:AddDropdown("UnitDropdown", { Text = "ชื่อตัวละคร", Values = UnitList, Default = 1, Searchable = true, Callback = function(V) TempName = V end })
 BuyGroup:AddDropdown("RarityDropdown", { Text = "ระดับ (Rarity)", Values = {"Any", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God"}, Default = 1, Callback = function(V) TempRarity = V end })
 BuyGroup:AddDropdown("MutationDropdown", { Text = "Mutation", Values = MutList, Default = 1, Searchable = true, Callback = function(V) TempMut = V end })
-
 BuyGroup:AddButton({ Text = "เพิ่มรายการ", Func = function() table.insert(BuyList, { Name = TempName, Rarity = TempRarity, Mutation = TempMut }) updateUI() end })
 BuyGroup:AddDivider()
 BuyGroup:AddToggle("AutoBuyToggle", { Text = "เปิดระบบ Auto Buy", Default = false, Callback = function(V) Config.MasterAutoBuy = V end })
 BuyGroup:AddDivider()
-
-BuyGroup:AddInput("DeleteInput", {
-    Text = "พิมพ์เลขที่จะลบ (เช่น 1, 2, 3)",
-    Default = "",
-    Numeric = true,
-    Finished = false,
-    Placeholder = "เลขรายการ...",
-    Callback = function(V)
-        local idx = tonumber(V)
-        if idx then SelectedDeleteIndex = idx end
-    end
-})
-BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", Func = function()
-    local idx = SelectedDeleteIndex
-    if #BuyList == 0 then return end
-    if idx >= 1 and idx <= #BuyList then
-        local removed = BuyList[idx]
-        table.remove(BuyList, idx)
-        updateUI()
-        UI_StatusLabel:SetText("สถานะ: ลบ " .. removed.Name .. " แล้ว")
-    else
-        UI_StatusLabel:SetText("สถานะ: เลขที่ใส่ไม่ถูกต้อง (1-" .. #BuyList .. ")")
-    end
-end })
+BuyGroup:AddInput("DeleteInput", { Text = "พิมพ์เลขที่จะลบ", Default = "", Numeric = true, Finished = false, Placeholder = "เลข...", Callback = function(V) local idx = tonumber(V) if idx then SelectedDeleteIndex = idx end end })
+BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", Func = function() local idx = SelectedDeleteIndex if #BuyList == 0 then return end if idx >= 1 and idx <= #BuyList then table.remove(BuyList, idx) updateUI() end end })
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
--- 🔔 Webhook Tab
+-- 🌟 Auto Event Tab (Buhara)
 -- ==========================================
-WebhookGroup:AddToggle("WebhookEnabledToggle", { Text = "เปิดการแจ้งเตือน Discord", Default = false, Callback = function(V) Config.WebhookEnabled = V end })
-WebhookGroup:AddDivider()
-WebhookGroup:AddInput("WebhookURLInput", {
-    Text = "Discord Webhook URL",
-    Default = "",
-    Numeric = false,
-    Finished = true, 
-    Placeholder = "https://discord.com/api/webhooks/...",
-    Callback = function(V) Config.WebhookURL = V end
+EventGroup:AddToggle("AutoBuharaToggle", { 
+    Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", 
+    Default = false, 
+    Callback = function(V) Config.AutoBuharaEvent = V end 
 })
-WebhookGroup:AddButton({ 
-    Text = "🧪 ทดสอบ Webhook", 
-    Func = function()
-        if Config.WebhookURL == "" then
-            UI_WebhookLog:SetText("❌ กรุณาใส่ Webhook URL ก่อน")
-            return
+EventGroup:AddLabel("เมื่อเควสมา สคริปต์จะหยุด Roll\nและวาร์ปไปเก็บของส่งให้เสร็จในพริบตา!")
+
+task.spawn(function()
+    while true do
+        if Config.AutoBuharaEvent then
+            local mutationStuffs = workspace:FindFirstChild("MutationStuffs")
+            local getData = game:GetService("ReplicatedStorage"):FindFirstChild("BuharaEventGetData", true)
+            
+            if mutationStuffs and getData then
+                local hasFood = false
+                for _, v in pairs(mutationStuffs:GetChildren()) do
+                    if v.Name == "FoodPickupItem" then hasFood = true break end
+                end
+                
+                if hasFood then
+                    local success, result = pcall(function() return getData:InvokeServer() end)
+                    if success and type(result) == "table" and result.FoodNeeded then
+                        IsDoingEvent = true -- บล็อก Auto Roll ชั่วคราว
+                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        local npc = mutationStuffs:FindFirstChild("Buhara")
+                        
+                        if hrp and npc then
+                            for foodName, isNeeded in pairs(result.FoodNeeded) do
+                                if isNeeded == true and Config.AutoBuharaEvent then
+                                    local targetItem = nil
+                                    for _, item in pairs(mutationStuffs:GetChildren()) do
+                                        if item.Name == "FoodPickupItem" and item:GetAttribute("FoodName") == foodName then
+                                            targetItem = item break
+                                        end
+                                    end
+                                    
+                                    if targetItem then
+                                        hrp.Velocity = Vector3.zero
+                                        hrp.CFrame = targetItem.CFrame
+                                        task.wait(0.4)
+                                        firePrompt(targetItem:FindFirstChildWhichIsA("ProximityPrompt", true))
+                                        task.wait(0.5)
+                                        
+                                        hrp.Velocity = Vector3.zero
+                                        hrp.CFrame = npc.PrimaryPart and npc.PrimaryPart.CFrame or npc:GetModelCFrame()
+                                        task.wait(0.4)
+                                        firePrompt(npc:FindFirstChildWhichIsA("ProximityPrompt", true))
+                                        task.wait(0.5)
+                                    end
+                                end
+                            end
+                        end
+                        IsDoingEvent = false -- คืนค่าให้ Auto Roll กลับมาทำงาน
+                        task.wait(5) -- กันสแปม
+                    end
+                end
+            end
         end
-        sendWebhook("TestUnit", "God", "Dragonborn", 999000)
-        UI_WebhookLog:SetText("📤 ส่งทดสอบแล้ว ตรวจสอบ Discord ได้เลย")
-    end 
-})
+        task.wait(2)
+    end
+end)
 
 -- ==========================================
--- 📡 Core Event Listener (อัปเดตระบบตรวจสอบ Case-Insensitive & Substring)
+-- 🔔 Webhook Tab & 📡 Auto Buy Listener
 -- ==========================================
+WebhookGroup:AddToggle("WebhookEnabledToggle", { Text = "เปิดการแจ้งเตือน Discord", Default = false, Callback = function(V) Config.WebhookEnabled = V end })
+WebhookGroup:AddInput("WebhookURLInput", { Text = "Discord Webhook URL", Default = "", Finished = true, Callback = function(V) Config.WebhookURL = V end })
+WebhookGroup:AddButton({ Text = "🧪 ทดสอบ Webhook", Func = function() sendWebhook("TestUnit", "God", "Dragonborn", 999000) end })
+
 local function checkAndBuy(charModel, name, rarity, mutation, price)
-    if not Config.MasterAutoBuy then return end
-    if WaitingForPriority then return end
-    
+    if not Config.MasterAutoBuy or WaitingForPriority or IsDoingEvent then return end
     local n, r, m = tostring(name):lower(), tostring(rarity):lower(), tostring(mutation):lower()
     
     for _, item in ipairs(BuyList) do
         local iN, iR, iM = tostring(item.Name):lower(), tostring(item.Rarity):lower(), tostring(item.Mutation):lower()
-        
-        -- ใช้ find() ช่วยให้หาเจอง่ายขึ้นเวลาเกมตั้งชื่อเพี้ยนไปนิดหน่อย
-        local matchName = (iN == "any" or n:find(iN, 1, true))
-        local matchRarity = (iR == "any" or r == iR)
-        local matchMut = (iM == "any" or m:find(iM, 1, true))
-        
-        if matchName and matchRarity and matchMut then
-            print("[AutoBuy] ตรวจพบเงื่อนไขตรงกับ:", name, rarity, mutation)
+        if (iN == "any" or n:find(iN, 1, true)) and (iR == "any" or r == iR) and (iM == "any" or m:find(iM, 1, true)) then
             tryBuyChar(charModel, name, rarity, mutation, price)
             break
         end
@@ -482,11 +420,7 @@ end
 
 task.spawn(function()
     local myPlot = nil
-    repeat
-        myPlot = getMyPlot()
-        task.wait(1)
-    until myPlot
-
+    repeat myPlot = getMyPlot() task.wait(1) until myPlot
     local charsFolder = myPlot:FindFirstChild("Characters") or myPlot:WaitForChild("Characters", 5)
     if not charsFolder then return end
 
@@ -503,65 +437,15 @@ task.spawn(function()
 
         if frame then
             local uName = char.Name
-            local rarityLabel = frame:FindFirstChild("Rarity")
-            local mutLabel = frame:FindFirstChild("Mutation")
+            local rarityLabel, mutLabel, priceLabel = frame:FindFirstChild("Rarity"), frame:FindFirstChild("Mutation"), frame:FindFirstChild("Price")
             local uRarity = rarityLabel and rarityLabel.Text or "Normal"
             local uMut = (mutLabel and mutLabel.Visible) and mutLabel.Text or "Normal"
-            local priceLabel = frame:FindFirstChild("Price")
             local uPrice = (priceLabel and priceLabel.Text) and parsePrice(priceLabel.Text) or 0
-
-            print("[Debug] Name:", uName, "| Rarity:", uRarity, "| Mut:", uMut, "| Price:", uPrice)
-
             checkAndBuy(char, uName, uRarity, uMut, uPrice)
             handlePriorityUnit(char, uRarity, uMut)
         end
     end)
 end)
-
--- ==========================================
--- 🧪 Debug Tools Tab
--- ==========================================
-DebugGroup:AddButton({
-    Text = "🔄 ดึงข้อมูลตัวละคร/Mut ใหม่",
-    Func = function()
-        local newUnits, newMuts = getGameData()
-        Options.UnitDropdown:SetValues(newUnits)
-        Options.MutationDropdown:SetValues(newMuts)
-        UI_StatusLabel:SetText("สถานะ: โหลดรายชื่อตัวละคร/Mut ใหม่สำเร็จ!")
-        print("[Debug] รีเฟรชรายชื่อตัวละครสำเร็จ")
-    end
-})
-
-DebugGroup:AddDivider()
-DebugGroup:AddLabel("จำลอง Priority (ต้องมีตัวใน Plot)")
-
-DebugGroup:AddButton({
-    Text = "จำลอง: เจอ God ใน Plot",
-    Func = function()
-        local myPlot = getMyPlot()
-        if not myPlot then UI_StatusLabel:SetText("สถานะ: [Debug] ไม่เจอ plot"); return end
-        local charsFolder = myPlot:FindFirstChild("Characters")
-        local firstChar = charsFolder and charsFolder:GetChildren()[1]
-        if not firstChar then UI_StatusLabel:SetText("สถานะ: [Debug] ไม่มีตัวใน plot"); return end
-        
-        CurrentPriorityLevel = 2
-        CurrentPriorityUnit = firstChar
-        PriorityTargetName = "God [DEBUG:" .. firstChar.Name .. "]"
-        WaitingForPriority = true
-        UI_StatusLabel:SetText("สถานะ: [Debug] จำลอง God = " .. firstChar.Name)
-    end
-})
-
-DebugGroup:AddButton({
-    Text = "Reset Priority",
-    Func = function()
-        WaitingForPriority = false
-        CurrentPriorityLevel = 0
-        CurrentPriorityUnit = nil
-        PriorityTargetName = ""
-        UI_StatusLabel:SetText("สถานะ: [Debug] Reset Priority แล้ว")
-    end
-})
 
 -- ==========================================
 -- 🎨 UI Settings & SaveManager
@@ -596,7 +480,6 @@ SaveManager.Load = function(self, name)
         pcall(function()
             local path = "AutoRollPRO/buylists/" .. name .. ".json"
             if isfile(path) then BuyList = HttpService:JSONDecode(readfile(path)) else BuyList = {} end
-            
             local whPath = "AutoRollPRO/buylists/" .. name .. "_webhook.txt"
             if isfile(whPath) then
                 Config.WebhookURL = readfile(whPath)
@@ -613,24 +496,4 @@ SaveManager:SetFolder("AutoRollPRO/game")
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
 SaveManager:BuildConfigSection(Tabs["UI Settings"])
 Library.ToggleKeybind = Options.MenuKeybind
-
 SaveManager:LoadAutoloadConfig()
-
--- ==========================================
--- 🌊 Auto Start Wave
--- ==========================================
-task.spawn(function()
-    local RS = game:GetService("ReplicatedStorage")
-    local startWave = nil
-    local tries = 0
-    repeat
-        pcall(function() startWave = RS.Remotes.Start.StartWave end)
-        if not startWave then task.wait(1) end
-        tries = tries + 1
-    until startWave or tries >= 15
-
-    if startWave then
-        task.wait(2)
-        pcall(function() startWave:FireServer() print("[AutoStart] ส่ง StartWave สำเร็จ!") end)
-    end
-end)
