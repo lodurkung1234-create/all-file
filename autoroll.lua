@@ -11,7 +11,7 @@ local Toggles = Library.Toggles
 
 local Window = Library:CreateWindow({
     Title = "Auto Roll & Smart Buy (PRO VERSION)",
-    Footer = "PRO Edition - Prompt Target Fix",
+    Footer = "PRO Edition - Ultimate Fix",
     ShowCustomCursor = true,
     AutoShow = true,
 })
@@ -279,7 +279,7 @@ local function handlePriorityUnit(charModel, rarityText, mutationText)
 end
 
 -- ==========================================
--- 🚀 Auto Roll Tab 
+-- 🚀 Auto Roll Tab -> HYBRID RUN & NEAT STANCE
 -- ==========================================
 RollGroup:AddToggle("AutoRollToggle", {
     Text = "เปิด Auto Roll",
@@ -308,20 +308,35 @@ RollGroup:AddToggle("AutoRollToggle", {
                                 
                                 if distance > prompt.MaxActivationDistance then
                                     if distance > 30 then
-                                        -- [FIX] ถ้าอยู่ไกลมาก (กลับจากทำเควส) ให้วาปกลับ เพื่อข้ามแท่นซื้อ Robux
+                                        -- [ระบบเนียนขั้นสุด] กลับจากเควสไกลๆ ให้วาปไปโผล่ "ด้านหลัง" ของตู้ไกลๆ ก่อน
                                         hrp.Velocity = Vector3.zero
-                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
+                                        -- สุ่มพิกัดให้อยู่ด้านหลังตู้ (ห่างออกไป 15-25 ช่อง)
+                                        local randomX = math.random(-15, 15)
+                                        local randomZ = math.random(15, 25) 
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(randomX, 5, randomZ)
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
-                                        if hum then hum.Jump = true end
-                                        task.wait(0.3)
-                                    else
-                                        -- [FIX] ถ้าอยู่ใกล้ๆ (หลุดวงระยะสั้น) ให้เดินกลับปกติ
+                                        task.wait(0.5) -- รอให้หล่นถึงพื้น
+                                        
+                                        -- สั่งให้ "วิ่ง" เข้ามาที่ตู้ (คนอื่นจะเห็นเราวิ่งกลับมาที่ตู้ปกติ)
                                         hum:MoveTo(prompt.Parent.Position)
-                                        local waited = 0
-                                        repeat 
-                                            task.wait(0.1)
-                                            waited = waited + 0.1 
-                                        until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 5
+                                    else
+                                        -- ถ้าแค่หลุดวงระยะสั้น ก็สั่งเดินปกติ
+                                        hum:MoveTo(prompt.Parent.Position)
+                                    end
+                                    
+                                    -- รอจนกว่าจะเดินมาถึงตู้ (อยู่ในระยะทำการ)
+                                    local waited = 0
+                                    repeat 
+                                        task.wait(0.1)
+                                        waited = waited + 0.1 
+                                    until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 5
+                                    
+                                    -- [สุ่มจุดยืน] พอถึงตู้แล้ว ให้ขยับจุดยืนนิดหน่อย (ซ้าย-ขวา) ไม่ทับรอยเดิม
+                                    if (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance then
+                                        local standOffsetX = math.random(-2, 2)
+                                        local standOffsetZ = math.random(2, 4) -- ยืนห่างออกมากด 2-4 ช่อง
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(standOffsetX, 0, standOffsetZ)
+                                        hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
                                     end
                                 end
                             end
@@ -360,14 +375,14 @@ BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", 
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
--- 🌟 Auto Event Tab (Buhara) -> TARGET PROMPT FIX
+-- 🌟 Auto Event Tab (Buhara) -> DYNAMIC HITBOX & DELAY
 -- ==========================================
 EventGroup:AddToggle("AutoBuharaToggle", { 
     Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", 
     Default = false, 
     Callback = function(V) Config.AutoBuharaEvent = V end 
 })
-EventGroup:AddLabel("สคริปต์จะหาตำแหน่งของ 'ปุ่ม E'\nและวาปไปยืนหน้าปุ่มโดยตรง (ป้องกัน NPC ยักษ์)")
+EventGroup:AddLabel("หน่วงเวลารอไอเทม + ระบบวัดความอ้วน NPC\nป้องกันการวาปจมในตัว NPC ยักษ์ 100%")
 
 task.spawn(function()
     while true do
@@ -385,8 +400,9 @@ task.spawn(function()
                     local success, result = pcall(function() return getData:InvokeServer() end)
                     if success and type(result) == "table" and result.FoodNeeded then
                         IsDoingEvent = true -- บล็อก Auto Roll ชั่วคราว
-                        local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                        local char = game.Players.LocalPlayer.Character
+                        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                        local hum = char and char:FindFirstChildOfClass("Humanoid")
                         local npc = mutationStuffs:FindFirstChild("Buhara")
                         
                         if hrp and npc then
@@ -401,7 +417,7 @@ task.spawn(function()
                                     
                                     if targetItem then
                                         -- ============================================
-                                        -- [FIX 1] วาปไปเก็บอาหาร (เล็งไปที่ปุ่ม E ของอาหารโดยตรง)
+                                        -- [STEP 1] วาปไปเก็บอาหาร
                                         -- ============================================
                                         local foodPrompt = targetItem:FindFirstChildWhichIsA("ProximityPrompt", true)
                                         local foodPromptPart = foodPrompt and foodPrompt.Parent
@@ -415,46 +431,58 @@ task.spawn(function()
                                             hrp.CFrame = CFrame.lookAt(hrp.Position, targetItem.Position)
                                         end
                                         
-                                        task.wait(0.1)
-                                        if hum then hum.Jump = true end
                                         task.wait(0.3)
-                                        firePrompt(foodPrompt)
+                                        if hum then hum.Jump = true end
                                         task.wait(0.5)
+                                        firePrompt(foodPrompt)
+                                        
+                                        -- 🚨 รอ 1.5 วินาที ให้เกมเสกของใส่มือเราให้เสร็จก่อน
+                                        task.wait(1.5)
                                         
                                         -- ============================================
-                                        -- [FIX 2] วาปไปหา NPC (เล็งไปที่ปุ่ม E ของ NPC โดยตรง)
+                                        -- [STEP 2] วาปไปส่งอาหารให้ NPC (วัดขนาดเป้าหมาย)
                                         -- ============================================
                                         local npcPrompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                        local npcPromptPart = npcPrompt and npcPrompt.Parent
                                         hrp.Velocity = Vector3.zero
                                         
-                                        if npcPromptPart and npcPromptPart:IsA("BasePart") then
-                                            -- ถ้าหาชิ้นส่วนที่ติดปุ่ม E เจอ ให้วาปไปตรงชิ้นส่วนนั้น
-                                            hrp.CFrame = npcPromptPart.CFrame * CFrame.new(0, 0, 4)
-                                            hrp.CFrame = CFrame.lookAt(hrp.Position, npcPromptPart.Position)
-                                        else
-                                            -- ถ้าหาไม่เจอ ให้วาปกะระยะห่างออกมา 10 ช่อง เผื่อ NPC ตัวใหญ่มาก
-                                            local npcTargetCFrame = npc.PrimaryPart and npc.PrimaryPart.CFrame or npc:GetModelCFrame()
-                                            hrp.CFrame = npcTargetCFrame * CFrame.new(0, 0, 10)
-                                            hrp.CFrame = CFrame.lookAt(hrp.Position, npcTargetCFrame.Position)
+                                        local targetPos = npc:GetPivot().Position
+                                        local safeDistance = 15 -- ระยะห่างเริ่มต้นสำหรับ NPC ตัวใหญ่
+                                        
+                                        if npcPrompt then
+                                            local parent = npcPrompt.Parent
+                                            if parent:IsA("Attachment") then
+                                                -- ถ้าปุ่มเป็นแบบ Attachment วาปเข้าใกล้ได้เลย
+                                                targetPos = parent.WorldPosition
+                                                safeDistance = 5
+                                            elseif parent:IsA("BasePart") then
+                                                -- คำนวณความอ้วนของโมเดล NPC แล้วบวกรถยะถอยออกมา 6 ช่อง
+                                                targetPos = parent.Position
+                                                local maxDimension = math.max(parent.Size.X, parent.Size.Z)
+                                                safeDistance = (maxDimension / 2) + 6 
+                                            end
                                         end
                                         
-                                        task.wait(0.1)
-                                        if hum then hum.Jump = true end
+                                        -- ถอยออกมาในแกน Z (โลก) หันหน้าเข้าหา NPC เป๊ะๆ
+                                        hrp.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 0, safeDistance), targetPos)
+                                        
                                         task.wait(0.3)
-                                        firePrompt(npcPrompt)
+                                        if hum then hum.Jump = true end
                                         task.wait(0.5)
+                                        firePrompt(npcPrompt)
+                                        
+                                        -- 🚨 รอ 1.5 วินาที ให้เกมดึงของออกจากมือ (ส่งเควสสำเร็จ)
+                                        task.wait(1.5)
                                     end
                                 end
                             end
                         end
                         IsDoingEvent = false -- คืนค่าให้ Auto Roll กลับมาทำงาน
-                        task.wait(5) -- กันสแปม
+                        task.wait(2) -- กันสแปม
                     end
                 end
             end
         end
-        task.wait(2)
+        task.wait(1)
     end
 end)
 
