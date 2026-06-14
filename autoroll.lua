@@ -279,7 +279,7 @@ local function handlePriorityUnit(charModel, rarityText, mutationText)
 end
 
 -- ==========================================
--- 🚀 Auto Roll Tab -> HYBRID RUN & NEAT STANCE
+-- 🚀 Auto Roll Tab -> ANTI-STUCK & AUTO JUMP
 -- ==========================================
 RollGroup:AddToggle("AutoRollToggle", {
     Text = "เปิด Auto Roll",
@@ -308,33 +308,39 @@ RollGroup:AddToggle("AutoRollToggle", {
                                 
                                 if distance > prompt.MaxActivationDistance then
                                     if distance > 30 then
-                                        -- [ระบบเนียนขั้นสุด] กลับจากเควสไกลๆ ให้วาปไปโผล่ "ด้านหลัง" ของตู้ไกลๆ ก่อน
+                                        -- [FIX 1] วาปมาโผล่ "ด้านหน้า" ของตู้แทน (ระยะ 10-15 ช่อง) เพื่อลดโอกาสตกขอบ
                                         hrp.Velocity = Vector3.zero
-                                        -- สุ่มพิกัดให้อยู่ด้านหลังตู้ (ห่างออกไป 15-25 ช่อง)
-                                        local randomX = math.random(-15, 15)
-                                        local randomZ = math.random(15, 25) 
-                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(randomX, 5, randomZ)
+                                        local randomX = math.random(-5, 5)
+                                        local randomZ = math.random(-15, -10) -- ใช้ค่าลบเพื่อให้อยู่ด้านหน้าตู้
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(randomX, 3, randomZ)
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
-                                        task.wait(0.5) -- รอให้หล่นถึงพื้น
-                                        
-                                        -- สั่งให้ "วิ่ง" เข้ามาที่ตู้ (คนอื่นจะเห็นเราวิ่งกลับมาที่ตู้ปกติ)
-                                        hum:MoveTo(prompt.Parent.Position)
-                                    else
-                                        -- ถ้าแค่หลุดวงระยะสั้น ก็สั่งเดินปกติ
-                                        hum:MoveTo(prompt.Parent.Position)
+                                        task.wait(0.5)
                                     end
                                     
-                                    -- รอจนกว่าจะเดินมาถึงตู้ (อยู่ในระยะทำการ)
+                                    -- เริ่มสั่งเดินไปหาตู้
+                                    hum:MoveTo(prompt.Parent.Position)
+                                    
+                                    -- [FIX 2] ระบบ Anti-Stuck กระโดดข้ามสิ่งกีดขวาง
                                     local waited = 0
+                                    local lastPos = hrp.Position
                                     repeat 
-                                        task.wait(0.1)
-                                        waited = waited + 0.1 
-                                    until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 5
+                                        task.wait(0.2)
+                                        waited = waited + 0.2 
+                                        
+                                        -- เช็คว่าถ้าเวลาผ่านไป 0.2 วิ แล้วขยับได้น้อยกว่า 1 ช่อง (แปลว่าเดินชนขอบ)
+                                        if (hrp.Position - lastPos).Magnitude < 1 then
+                                            hum.Jump = true -- สั่งกระโดด!
+                                        end
+                                        lastPos = hrp.Position
+                                        
+                                        -- ย้ำคำสั่งเดินเรื่อยๆ กัน AI เอ๋อ
+                                        hum:MoveTo(prompt.Parent.Position)
+                                    until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 6
                                     
                                     -- [สุ่มจุดยืน] พอถึงตู้แล้ว ให้ขยับจุดยืนนิดหน่อย (ซ้าย-ขวา) ไม่ทับรอยเดิม
                                     if (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance then
                                         local standOffsetX = math.random(-2, 2)
-                                        local standOffsetZ = math.random(2, 4) -- ยืนห่างออกมากด 2-4 ช่อง
+                                        local standOffsetZ = math.random(2, 4)
                                         hrp.CFrame = prompt.Parent.CFrame * CFrame.new(standOffsetX, 0, standOffsetZ)
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
                                     end
