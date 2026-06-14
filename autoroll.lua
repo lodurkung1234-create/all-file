@@ -11,7 +11,7 @@ local Toggles = Library.Toggles
 
 local Window = Library:CreateWindow({
     Title = "Auto Roll & Smart Buy (PRO VERSION)",
-    Footer = "PRO Edition",
+    Footer = "PRO Edition - NPC Fix",
     ShowCustomCursor = true,
     AutoShow = true,
 })
@@ -334,7 +334,7 @@ BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", 
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
--- 🌟 Auto Event Tab (Buhara)
+-- 🌟 Auto Event Tab (Buhara) -> FIXED CLIPPING
 -- ==========================================
 EventGroup:AddToggle("AutoBuharaToggle", { 
     Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", 
@@ -360,6 +360,7 @@ task.spawn(function()
                     if success and type(result) == "table" and result.FoodNeeded then
                         IsDoingEvent = true -- บล็อก Auto Roll ชั่วคราว
                         local hrp = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
                         local npc = mutationStuffs:FindFirstChild("Buhara")
                         
                         if hrp and npc then
@@ -373,15 +374,28 @@ task.spawn(function()
                                     end
                                     
                                     if targetItem then
+                                        -- ============================================
+                                        -- [FIX] วาปไปเก็บอาหาร (เว้นระยะ 3 studs หันหน้าเข้าหาเป้า)
+                                        -- ============================================
                                         hrp.Velocity = Vector3.zero
-                                        hrp.CFrame = targetItem.CFrame
-                                        task.wait(0.4)
+                                        hrp.CFrame = targetItem.CFrame * CFrame.new(0, 0, -3)
+                                        hrp.CFrame = CFrame.lookAt(hrp.Position, targetItem.Position)
+                                        task.wait(0.1)
+                                        if hum then hum.Jump = true end
+                                        task.wait(0.3)
                                         firePrompt(targetItem:FindFirstChildWhichIsA("ProximityPrompt", true))
                                         task.wait(0.5)
                                         
+                                        -- ============================================
+                                        -- [FIX] วาปไปหา NPC (เว้นระยะ 4 studs หันหน้าเข้าหา NPC)
+                                        -- ============================================
                                         hrp.Velocity = Vector3.zero
-                                        hrp.CFrame = npc.PrimaryPart and npc.PrimaryPart.CFrame or npc:GetModelCFrame()
-                                        task.wait(0.4)
+                                        local npcTargetCFrame = npc.PrimaryPart and npc.PrimaryPart.CFrame or npc:GetModelCFrame()
+                                        hrp.CFrame = npcTargetCFrame * CFrame.new(0, 0, -4)
+                                        hrp.CFrame = CFrame.lookAt(hrp.Position, npcTargetCFrame.Position)
+                                        task.wait(0.1)
+                                        if hum then hum.Jump = true end
+                                        task.wait(0.3)
                                         firePrompt(npc:FindFirstChildWhichIsA("ProximityPrompt", true))
                                         task.wait(0.5)
                                     end
