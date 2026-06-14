@@ -304,13 +304,25 @@ RollGroup:AddToggle("AutoRollToggle", {
                             local hrp, hum = char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildWhichIsA("Humanoid")
                             
                             if hrp and hum then
-                                if (hrp.Position - prompt.Parent.Position).Magnitude > prompt.MaxActivationDistance then
-                                    -- วาปกลับฐานแทนการเดิน เพื่อป้องกันการเหยียบแท่นซื้อ Robux
-                                    hrp.Velocity = Vector3.zero
-                                    hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
-                                    hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
-                                    if hum then hum.Jump = true end
-                                    task.wait(0.3)
+                                local distance = (hrp.Position - prompt.Parent.Position).Magnitude
+                                
+                                if distance > prompt.MaxActivationDistance then
+                                    if distance > 30 then
+                                        -- [FIX] ถ้าอยู่ไกลมาก (กลับจากทำเควส) ให้วาปกลับ เพื่อข้ามแท่นซื้อ Robux
+                                        hrp.Velocity = Vector3.zero
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
+                                        hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
+                                        if hum then hum.Jump = true end
+                                        task.wait(0.3)
+                                    else
+                                        -- [FIX] ถ้าอยู่ใกล้ๆ (หลุดวงระยะสั้น) ให้เดินกลับปกติ
+                                        hum:MoveTo(prompt.Parent.Position)
+                                        local waited = 0
+                                        repeat 
+                                            task.wait(0.1)
+                                            waited = waited + 0.1 
+                                        until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 5
+                                    end
                                 end
                             end
                             firePrompt(prompt)
