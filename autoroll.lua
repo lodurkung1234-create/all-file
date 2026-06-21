@@ -8,10 +8,11 @@ local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
 local Options = Library.Options
 local Toggles = Library.Toggles
+local HttpService = game:GetService("HttpService") -- ย้ายขึ้นมาไว้ด้านบนเพื่อใช้ร่วมกัน
 
 local Window = Library:CreateWindow({
     Title = "Auto Roll & Smart Buy (PRO VERSION)",
-    Footer = "PRO Edition - Ultimate Fix",
+    Footer = "PRO Edition + Drop Tracker",
     ShowCustomCursor = true,
     AutoShow = true,
 })
@@ -20,6 +21,7 @@ local Tabs = {
     Main = Window:AddTab("Auto Roll", "play"),
     Buy = Window:AddTab("Auto Buy", "shopping-cart"),
     Event = Window:AddTab("Auto Event", "star"),
+    Tracker = Window:AddTab("Drop Tracker", "clipboard"), -- 🟩 แท็บใหม่สำหรับ Tracker
     Webhook = Window:AddTab("Webhook", "bell"),
     Debug = Window:AddTab("Debug", "settings"),
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
@@ -30,6 +32,11 @@ local StatusGroup = Tabs.Main:AddRightGroupbox("สถานะ")
 local BuyGroup = Tabs.Buy:AddLeftGroupbox("ตั้งค่าการซื้อ")
 local ListGroup = Tabs.Buy:AddRightGroupbox("รายการที่บันทึก")
 local EventGroup = Tabs.Event:AddLeftGroupbox("ตั้งค่ากิจกรรม")
+
+-- 🟩 กลุ่ม UI สำหรับ Drop Tracker
+local TrackerLeftGroup = Tabs.Tracker:AddLeftGroupbox("ตั้งค่าบอทจด")
+local TrackerRightGroup = Tabs.Tracker:AddRightGroupbox("สถิติ (Grand Total)")
+
 local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
 local WebhookLogGroup = Tabs.Webhook:AddRightGroupbox("Log การแจ้งเตือน")
 local DebugGroup = Tabs.Debug:AddLeftGroupbox("Debug Tools")
@@ -49,7 +56,6 @@ task.spawn(function()
     end)
 end)
 
--- บล็อกไม่ให้หน้าต่างซื้อ Robux เด้ง
 pcall(function()
     local MS = game:GetService("MarketplaceService")
     if hookfunction then
@@ -60,7 +66,7 @@ pcall(function()
 end)
 
 -- ==========================================
--- ⚙️ ค่าเริ่มต้นระบบ
+-- ⚙️ ค่าเริ่มต้นระบบ Auto Roll
 -- ==========================================
 local Config = { 
     AutoRoll = false, 
@@ -84,6 +90,213 @@ local IsDoingEvent = false
 local CurrentPriorityLevel = 0 
 local CurrentPriorityUnit = nil
 local PriorityTargetName = ""
+
+-- ==========================================
+-- 📊 ระบบ Drop Tracker Variables
+-- ==========================================
+local isTracking = false
+local isResettingTracker = false
+local currentSessionRound = 1 
+local currentStats = {}
+local currentTrackerTotal = 0
+local recentDrops = {}
+
+local logFileName = "AutoRollPRO/DropTracker_Log.txt"
+local dataFileName = "AutoRollPRO/DropTracker_Data.json"
+
+local globalTrackerData = {
+    totalRounds = 0,
+    grandTotalDrops = 0,
+    grandStats = {}
+}
+
+-- สร้างโฟลเดอร์ให้ชัวร์
+pcall(function() if not isfolder("AutoRollPRO") then makefolder("AutoRollPRO") end end)
+
+local function loadGlobalTrackerData()
+    if isfile and isfile(dataFileName) then
+        local success, decoded = pcall(function() return HttpService:JSONDecode(readfile(dataFileName)) end)
+        if success and type(decoded) == "table" then
+            globalTrackerData = decoded
+            print("✅ [Tracker] โหลดข้อมูลเก่าสำเร็จ! รอบสะสม: " .. globalTrackerData.totalRounds)
+        end
+    end
+end
+
+local function saveGlobalTrackerData()
+    if writefile then
+        local success, encoded = pcall(function() return HttpService:JSONEncode(globalTrackerData) end)
+        if success then writefile(dataFileName, encoded) end
+    end
+end
+
+loadGlobalTrackerData()
+
+-- ==========================================
+-- 📋 UI สำหรับ Drop Tracker
+-- ==========================================
+local TrackerStatusLabel = TrackerLeftGroup:AddLabel("🔴 สถานะ: ปิดการทำงาน")
+local TrackerInfoLabel = TrackerLeftGroup:AddLabel("ประวัติสะสมทั้งหมด: " .. globalTrackerData.totalRounds .. " รอบ")
+local TrackerGrandLabel = TrackerRightGroup:AddLabel("รอข้อมูลอัปเดต...")
+
+local function updateGrandTotalLabel()
+    if globalTrackerData.totalRounds == 0 then
+        TrackerGrandLabel:SetText("ยังไม่มีข้อมูลสถิติ\nเปิดบอทเล่นให้จบสัก 1 รอบเพื่อดูผล")
+        return
+    end
+    
+    local txt = string.format("🎮 ยอดรวม %d รอบ\n📦 ไอเทมทั้งหมด: %d ชิ้น\n\n", globalTrackerData.totalRounds, globalTrackerData.grandTotalDrops)
+    local sortedGrand = {}
+    for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedGrand, {name = item, amount = count}) end
+    table.sort(sortedGrand, function(a, b) return a.amount > b.amount end)
+
+    for i, data in ipairs(sortedGrand) do
+        if i > 8 then txt = txt .. "  ...และอื่นๆ\n" break end -- โชว์แค่ 8 อันดับแรกใน UI กันล้น
+        local grandRate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
+        txt = txt .. string.format("🏆 %s: %d (%.1f%%)\n", data.name, data.amount, grandRate)
+    end
+    TrackerGrandLabel:SetText(txt)
+end
+updateGrandTotalLabel()
+
+TrackerLeftGroup:AddToggle("EnableTrackerToggle", {
+    Text = "เปิดบอทจดของดรอป (Tracker)",
+    Default = false,
+    Callback = function(V)
+        isTracking = V
+        if V then
+            TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
+        else
+            TrackerStatusLabel:SetText("🔴 สถานะ: ปิดการทำงาน")
+        end
+    end
+})
+
+local function generateTrackerCopyText()
+    if globalTrackerData.totalRounds == 0 then return "No data to copy yet." end
+    local str = "=== 🏆 CURRENT GRAND TOTAL (" .. globalTrackerData.totalRounds .. " Rounds) ===\n"
+    str = str .. "Total Items Dropped: " .. globalTrackerData.grandTotalDrops .. " pcs\n\n"
+    
+    local sortedStats = {}
+    for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedStats, {name = item, amount = count}) end
+    table.sort(sortedStats, function(a, b) return a.amount > b.amount end)
+
+    for _, data in ipairs(sortedStats) do
+        local rate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
+        str = str .. string.format("  - %-20s : %d pcs (%.2f%%)\n", data.name, data.amount, rate)
+    end
+    str = str .. "\n(Full history is in workspace/AutoRollPRO/DropTracker_Log.txt)"
+    return str
+end
+
+TrackerLeftGroup:AddButton({
+    Text = "📋 Copy Grand Total",
+    Func = function()
+        local textToCopy = generateTrackerCopyText()
+        if setclipboard then
+            setclipboard(textToCopy)
+            Library:Notify("✅ ก๊อปปี้สถิติทั้งหมดลง Clipboard แล้ว!")
+        else
+            Library:Notify("❌ ตัวรันนี้ไม่รองรับระบบก๊อปปี้")
+        end
+    end
+})
+
+-- ==========================================
+-- ⚙️ ฟังก์ชันจดของดรอป & เซฟไฟล์
+-- ==========================================
+local function finalizeTrackerRound(waveNumber)
+    -- อัปเดต Global Data
+    globalTrackerData.totalRounds = globalTrackerData.totalRounds + 1
+    globalTrackerData.grandTotalDrops = globalTrackerData.grandTotalDrops + currentTrackerTotal
+    for item, count in pairs(currentStats) do
+        globalTrackerData.grandStats[item] = (globalTrackerData.grandStats[item] or 0) + count
+    end
+    saveGlobalTrackerData()
+
+    -- จัด Text สำหรับ TXT
+    local logText = "\n" .. string.rep("=", 45) .. "\n"
+    logText = logText .. string.format("[ROUND INFO] Global: #%d | Session: #%d\n", globalTrackerData.totalRounds, currentSessionRound)
+    logText = logText .. "Ended at Wave: " .. waveNumber .. "\n"
+    logText = logText .. "Items Dropped This Round: " .. currentTrackerTotal .. " pcs\n"
+    
+    for item, count in pairs(currentStats) do
+        local rate = currentTrackerTotal > 0 and (count / currentTrackerTotal) * 100 or 0
+        logText = logText .. string.format("  - %-20s : %d pcs (%.1f%%)\n", item, count, rate)
+    end
+    
+    logText = logText .. "\n📈 [GRAND TOTAL AS OF ROUND " .. globalTrackerData.totalRounds .. "]\n"
+    logText = logText .. "Total Accumulated Rounds: " .. globalTrackerData.totalRounds .. "\n"
+    logText = logText .. "Total Accumulated Drops : " .. globalTrackerData.grandTotalDrops .. " pcs\n"
+    
+    local sortedGrand = {}
+    for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedGrand, {name = item, amount = count}) end
+    table.sort(sortedGrand, function(a, b) return a.amount > b.amount end)
+
+    for _, data in ipairs(sortedGrand) do
+        local grandRate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
+        logText = logText .. string.format("  🏆 %-18s : %d pcs (%.2f%%)\n", data.name, data.amount, grandRate)
+    end
+    logText = logText .. string.rep("=", 45) .. "\n"
+
+    -- เซฟลง TXT
+    if appendfile then
+        appendfile(logFileName, logText)
+    elseif writefile then
+        local existingText = isfile(logFileName) and readfile(logFileName) or "=== 📊 DETAILED DROP RATE LOG ===\n"
+        writefile(logFileName, existingText .. logText)
+    end
+
+    -- อัปเดต UI และ รีเซ็ต
+    updateGrandTotalLabel()
+    currentStats = {}
+    currentTrackerTotal = 0
+    currentSessionRound = currentSessionRound + 1
+    
+    TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
+    TrackerInfoLabel:SetText("ประวัติสะสมทั้งหมด: " .. globalTrackerData.totalRounds .. " รอบ")
+end
+
+local function processTrackerText(rawText)
+    if not isTracking then return end
+    local cleanText = rawText:gsub("%<[^%>]+%>", "")
+    local lowerText = string.lower(cleanText)
+    
+    local waveNum = string.match(lowerText, "you lost at wave (%d+)")
+    if waveNum then
+        if not isResettingTracker then
+            isResettingTracker = true
+            finalizeTrackerRound(waveNum)
+            task.delay(15, function() isResettingTracker = false end)
+        end
+        return
+    end
+
+    if not isResettingTracker and string.find(lowerText, "you got") then
+        if not recentDrops[cleanText] then
+            recentDrops[cleanText] = true
+            local quantityStr, itemName = string.match(cleanText, "x(%d+)%s*(.-)!")
+            local quantity = tonumber(quantityStr) or 1
+            if not itemName then itemName = cleanText:gsub("You got ", ""):gsub("!", "") end
+            
+            currentStats[itemName] = (currentStats[itemName] or 0) + quantity
+            currentTrackerTotal = currentTrackerTotal + quantity
+            
+            task.delay(1, function() recentDrops[cleanText] = nil end)
+        end
+    end
+end
+
+-- ดักจับ UI เปลี่ยนแปลงของ Drop Tracker
+local playerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+playerGui.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
+        if descendant.Text and descendant.Text ~= "" then processTrackerText(descendant.Text) end
+        descendant:GetPropertyChangedSignal("Text"):Connect(function()
+            if descendant.Text and descendant.Text ~= "" then processTrackerText(descendant.Text) end
+        end)
+    end
+end)
 
 -- ==========================================
 -- 💰 Helper Functions
@@ -203,7 +416,6 @@ local function sendWebhook(unitName, rarity, mutation, price)
     UI_WebhookLog:SetText(table.concat(webhookLogLines, "\n"))
 
     task.spawn(function()
-        local HttpService = game:GetService("HttpService")
         local body = HttpService:JSONEncode({
             embeds = {{
                 title = "✅ ซื้อตัวละครสำเร็จ!",
@@ -308,36 +520,30 @@ RollGroup:AddToggle("AutoRollToggle", {
                                 
                                 if distance > prompt.MaxActivationDistance then
                                     if distance > 30 then
-                                        -- [FIX 1] วาปมาโผล่ "ด้านหน้า" ของตู้แทน (ระยะ 10-15 ช่อง) เพื่อลดโอกาสตกขอบ
                                         hrp.Velocity = Vector3.zero
                                         local randomX = math.random(-5, 5)
-                                        local randomZ = math.random(-15, -10) -- ใช้ค่าลบเพื่อให้อยู่ด้านหน้าตู้
+                                        local randomZ = math.random(-15, -10)
                                         hrp.CFrame = prompt.Parent.CFrame * CFrame.new(randomX, 3, randomZ)
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
                                         task.wait(0.5)
                                     end
                                     
-                                    -- เริ่มสั่งเดินไปหาตู้
                                     hum:MoveTo(prompt.Parent.Position)
                                     
-                                    -- [FIX 2] ระบบ Anti-Stuck กระโดดข้ามสิ่งกีดขวาง
                                     local waited = 0
                                     local lastPos = hrp.Position
                                     repeat 
                                         task.wait(0.2)
                                         waited = waited + 0.2 
                                         
-                                        -- เช็คว่าถ้าเวลาผ่านไป 0.2 วิ แล้วขยับได้น้อยกว่า 1 ช่อง (แปลว่าเดินชนขอบ)
                                         if (hrp.Position - lastPos).Magnitude < 1 then
-                                            hum.Jump = true -- สั่งกระโดด!
+                                            hum.Jump = true
                                         end
                                         lastPos = hrp.Position
                                         
-                                        -- ย้ำคำสั่งเดินเรื่อยๆ กัน AI เอ๋อ
                                         hum:MoveTo(prompt.Parent.Position)
                                     until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 6
                                     
-                                    -- [สุ่มจุดยืน] พอถึงตู้แล้ว ให้ขยับจุดยืนนิดหน่อย (ซ้าย-ขวา) ไม่ทับรอยเดิม
                                     if (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance then
                                         local standOffsetX = math.random(-2, 2)
                                         local standOffsetZ = math.random(2, 4)
@@ -381,7 +587,7 @@ BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", 
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
--- 🌟 Auto Event Tab (Buhara) -> DYNAMIC HITBOX & DELAY
+-- 🌟 Auto Event Tab (Buhara)
 -- ==========================================
 EventGroup:AddToggle("AutoBuharaToggle", { 
     Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", 
@@ -405,7 +611,7 @@ task.spawn(function()
                 if hasFood then
                     local success, result = pcall(function() return getData:InvokeServer() end)
                     if success and type(result) == "table" and result.FoodNeeded then
-                        IsDoingEvent = true -- บล็อก Auto Roll ชั่วคราว
+                        IsDoingEvent = true
                         local char = game.Players.LocalPlayer.Character
                         local hrp = char and char:FindFirstChild("HumanoidRootPart")
                         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -422,9 +628,6 @@ task.spawn(function()
                                     end
                                     
                                     if targetItem then
-                                        -- ============================================
-                                        -- [STEP 1] วาปไปเก็บอาหาร
-                                        -- ============================================
                                         local foodPrompt = targetItem:FindFirstChildWhichIsA("ProximityPrompt", true)
                                         local foodPromptPart = foodPrompt and foodPrompt.Parent
                                         hrp.Velocity = Vector3.zero
@@ -442,33 +645,26 @@ task.spawn(function()
                                         task.wait(0.5)
                                         firePrompt(foodPrompt)
                                         
-                                        -- 🚨 รอ 1.5 วินาที ให้เกมเสกของใส่มือเราให้เสร็จก่อน
                                         task.wait(1.5)
                                         
-                                        -- ============================================
-                                        -- [STEP 2] วาปไปส่งอาหารให้ NPC (วัดขนาดเป้าหมาย)
-                                        -- ============================================
                                         local npcPrompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
                                         hrp.Velocity = Vector3.zero
                                         
                                         local targetPos = npc:GetPivot().Position
-                                        local safeDistance = 15 -- ระยะห่างเริ่มต้นสำหรับ NPC ตัวใหญ่
+                                        local safeDistance = 15
                                         
                                         if npcPrompt then
                                             local parent = npcPrompt.Parent
                                             if parent:IsA("Attachment") then
-                                                -- ถ้าปุ่มเป็นแบบ Attachment วาปเข้าใกล้ได้เลย
                                                 targetPos = parent.WorldPosition
                                                 safeDistance = 5
                                             elseif parent:IsA("BasePart") then
-                                                -- คำนวณความอ้วนของโมเดล NPC แล้วบวกรถยะถอยออกมา 6 ช่อง
                                                 targetPos = parent.Position
                                                 local maxDimension = math.max(parent.Size.X, parent.Size.Z)
                                                 safeDistance = (maxDimension / 2) + 6 
                                             end
                                         end
                                         
-                                        -- ถอยออกมาในแกน Z (โลก) หันหน้าเข้าหา NPC เป๊ะๆ
                                         hrp.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 0, safeDistance), targetPos)
                                         
                                         task.wait(0.3)
@@ -476,14 +672,13 @@ task.spawn(function()
                                         task.wait(0.5)
                                         firePrompt(npcPrompt)
                                         
-                                        -- 🚨 รอ 1.5 วินาที ให้เกมดึงของออกจากมือ (ส่งเควสสำเร็จ)
                                         task.wait(1.5)
                                     end
                                 end
                             end
                         end
-                        IsDoingEvent = false -- คืนค่าให้ Auto Roll กลับมาทำงาน
-                        task.wait(2) -- กันสแปม
+                        IsDoingEvent = false
+                        task.wait(2)
                     end
                 end
             end
@@ -553,7 +748,6 @@ SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({"MenuKeybind", "DeleteDropdown", "WebhookURLInput", "UnitDropdown", "MutationDropdown", "RarityDropdown"})
 
-local HttpService = game:GetService("HttpService")
 local oldSave = SaveManager.Save
 SaveManager.Save = function(self, name)
     local success = oldSave(self, name) 
