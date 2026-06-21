@@ -370,7 +370,7 @@ RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn", Default
 -- 🛒 Auto Buy Tab
 -- ==========================================
 BuyGroup:AddDropdown("UnitDropdown", { Text = "ชื่อตัวละคร", Values = UnitList, Default = 1, Searchable = true, Callback = function(V) TempName = V end })
-BuyGroup:AddDropdown("RarityDropdown", { Text = "ระดับ (Rarity)", Values = {"Any", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God"}, Default = 1, Callback = function(V) TempRarity = V end })
+BuyGroup:AddDropdown("RarityDropdown", { Text = "ระดับ (Rarity)", Values = {"Any", "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret", "God","Divine"}, Default = 1, Callback = function(V) TempRarity = V end })
 BuyGroup:AddDropdown("MutationDropdown", { Text = "Mutation", Values = MutList, Default = 1, Searchable = true, Callback = function(V) TempMut = V end })
 BuyGroup:AddButton({ Text = "เพิ่มรายการ", Func = function() table.insert(BuyList, { Name = TempName, Rarity = TempRarity, Mutation = TempMut }) updateUI() end })
 BuyGroup:AddDivider()
