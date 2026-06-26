@@ -59,7 +59,7 @@ local UI_WebhookLog = WebhookLogGroup:AddLabel("ยังไม่มีกา�
 ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้งหมด", Values = {"(ไม่มีรายการ)"}, Default = 1, Callback = function() end })
 
 -- ==========================================
--- 🛡️ Anti-AFK, Anti-Purchase Popups & Anti-Text Spam
+-- 🛡️ Anti-AFK & ระบบสกัดกั้นข้อความ + API ตรวจสอบหิน (AFK 100% Safe)
 -- ==========================================
 task.spawn(function()
     local VirtualUser = game:GetService("VirtualUser")
@@ -78,6 +78,16 @@ pcall(function()
     end
 end)
 
+-- สร้างตารางสถานะของหิน (ค่าเริ่มต้นคือ true = ให้ลองยิงเช็คดู)
+getgenv().FragmentStatus = {
+    ["Common Fragment"] = true,
+    ["Rare Fragment"] = true,
+    ["Epic Fragment"] = true,
+    ["Legendary Fragment"] = true,
+    ["Mythic Fragment"] = true,
+    ["Secret Fragment"] = true,
+}
+
 if not getgenv().AntiTextHooked then
     getgenv().AntiTextHooked = true
     local mt = getrawmetatable(game)
@@ -85,11 +95,21 @@ if not getgenv().AntiTextHooked then
     setreadonly(mt, false)
 
     mt.__newindex = newcclosure(function(t, k, v)
-        if k == "Text" and type(v) == "string" and string.find(v, "You don't have enough") then
+        if k == "Text" and type(v) == "string" and string.find(v, "don't have enough") then
+            
+            -- 🎯 ทีเด็ด: อ่านชื่อหินจากคำด่า แล้วสั่ง "ปิดสวิตช์" การหลอมหินชนิดนั้นทันที!
+            for fragName, _ in pairs(getgenv().FragmentStatus) do
+                if string.find(v, fragName) then
+                    getgenv().FragmentStatus[fragName] = false 
+                end
+            end
+
             if t:IsA("TextLabel") then
                 t.Visible = false
                 t.TextTransparency = 1
-                pcall(function() t.Parent.Visible = false end)
+                pcall(function() 
+                    if t.Parent and t.Parent:IsA("Frame") then t.Parent:Destroy() else t:Destroy() end 
+                end)
             end
             v = "" 
         end
@@ -575,7 +595,7 @@ BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() Buy
 
 
 -- ==========================================
--- 🔨 Auto Craft Tab (Auto Fuse) [🔥 แก้ไขบัค + เพิ่ม Turbo]
+-- 🔨 Auto Craft Tab (Probe Strategy - 30m Check)
 -- ==========================================
 CraftGroup:AddToggle("AutoCraftToggle", {
     Text = "เปิด Auto Fuse (หลอมหิน)",
@@ -609,16 +629,22 @@ task.spawn(function()
     local fuseRemote = nil
     
     pcall(function()
-        -- เลิกสุ่มหา บังคับชี้ที่อยู่ของแท้ตรงๆ เท่านั้น!
         fuseRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FragmentFusion"):WaitForChild("Request")
+    end)
+
+    -- ⏱️ ระบบรีเซ็ตสถานะ: ทุกๆ 30 นาที (1800 วินาที) ให้บอทลอง "สุ่มยิงเช็ค" อีกรอบ
+    task.spawn(function()
+        while true do
+            task.wait(1800) 
+            for k, _ in pairs(getgenv().FragmentStatus) do
+                getgenv().FragmentStatus[k] = true
+            end
+        end
     end)
 
     while true do
         if Config.AutoCraft and fuseRemote then
-            UI_CraftStatus:SetText("สถานะ: 🟢 กำลังหลอมหินเบื้องหลัง...")
-            
             local fragmentsToFuse = {}
-            -- ✅ แก้จาก Options เป็น Toggles แล้ว
             if Toggles.Craft_Common.Value then table.insert(fragmentsToFuse, "Common Fragment") end
             if Toggles.Craft_Rare.Value then table.insert(fragmentsToFuse, "Rare Fragment") end
             if Toggles.Craft_Epic.Value then table.insert(fragmentsToFuse, "Epic Fragment") end
@@ -626,25 +652,28 @@ task.spawn(function()
             if Toggles.Craft_Mythic.Value then table.insert(fragmentsToFuse, "Mythic Fragment") end
             if Toggles.Craft_Secret.Value then table.insert(fragmentsToFuse, "Secret Fragment") end
 
+            local isFusingAnything = false
+
             for _, fragName in ipairs(fragmentsToFuse) do
                 if not Config.AutoCraft then break end 
                 
-                -- 🥷 Stealth Turbo: สุ่มยิง 2-4 ครั้งให้ไม่ซ้ำแพทเทิร์น
-                local burstCount = math.random(2, 4) 
-                
-                for i = 1, burstCount do
-                    pcall(function()
-                        fuseRemote:FireServer(fragName)
-                    end)
-                    -- ⏱️ Micro-Delay: สุ่มหน่วงเวลา 0.05 - 0.15 วิระหว่างนัด (เหมือนคนกดเมาส์ไวๆ)
-                    task.wait(math.random(5, 15) / 100) 
+                -- 🎯 ยิงเฉพาะหินที่สวิตช์ยังเปิดอยู่ (หินที่ยังไม่โดนเซิร์ฟเวอร์แจ้งว่าของหมด)
+                if getgenv().FragmentStatus[fragName] then
+                    UI_CraftStatus:SetText("สถานะ: ⚡ กำลังพยายามหลอม " .. fragName)
+                    
+                    pcall(function() fuseRemote:FireServer(fragName) end)
+                    
+                    isFusingAnything = true
+                    
+                    task.wait(Config.CraftDelay)
                 end
-                
-                -- ⏱️ Main-Delay: หน่วงเวลาหลัก + สุ่มบวกเวลาเพิ่มอีก 0.1-0.3 วิ เพื่อความเนียน
-                task.wait(Config.CraftDelay + (math.random(1, 3) / 10))
             end
             
-            task.wait(1.5)
+            -- ถ้าสวิตช์โดนปิดหมดทุกอันแล้ว บอทจะเข้าโหมดจำศีล
+            if not isFusingAnything then
+                UI_CraftStatus:SetText("สถานะ: 💤 ของหมด... รอเช็คใหม่ใน 30 นาที")
+                task.wait(2)
+            end
         else
             if not fuseRemote and Config.AutoCraft then
                 UI_CraftStatus:SetText("สถานะ: ❌ หาระบบหลอมหินไม่เจอ!")
