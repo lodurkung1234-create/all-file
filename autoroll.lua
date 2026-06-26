@@ -8,11 +8,15 @@ local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
 
 local Options = Library.Options
 local Toggles = Library.Toggles
-local HttpService = game:GetService("HttpService") -- ย้ายขึ้นมาไว้ด้านบนเพื่อใช้ร่วมกัน
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
 local Window = Library:CreateWindow({
     Title = "Auto Roll & Smart Buy (PRO VERSION)",
-    Footer = "PRO Edition + Drop Tracker",
+    Footer = "PRO Edition + Drop Tracker + Auto Spin",
     ShowCustomCursor = true,
     AutoShow = true,
 })
@@ -20,8 +24,9 @@ local Window = Library:CreateWindow({
 local Tabs = {
     Main = Window:AddTab("Auto Roll", "play"),
     Buy = Window:AddTab("Auto Buy", "shopping-cart"),
+    Spin = Window:AddTab("Auto Spin", "refresh-cw"), -- 🆕 แท็บสปิน
     Event = Window:AddTab("Auto Event", "star"),
-    Tracker = Window:AddTab("Drop Tracker", "clipboard"), -- 🟩 แท็บใหม่สำหรับ Tracker
+    Tracker = Window:AddTab("Drop Tracker", "clipboard"),
     Webhook = Window:AddTab("Webhook", "bell"),
     Debug = Window:AddTab("Debug", "settings"),
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
@@ -31,9 +36,10 @@ local RollGroup = Tabs.Main:AddLeftGroupbox("Auto Roll")
 local StatusGroup = Tabs.Main:AddRightGroupbox("สถานะ")
 local BuyGroup = Tabs.Buy:AddLeftGroupbox("ตั้งค่าการซื้อ")
 local ListGroup = Tabs.Buy:AddRightGroupbox("รายการที่บันทึก")
+local SpinGroup = Tabs.Spin:AddLeftGroupbox("ตั้งค่า Auto Spin")
+local SpinStatusGroup = Tabs.Spin:AddRightGroupbox("สถานะสปิน")
 local EventGroup = Tabs.Event:AddLeftGroupbox("ตั้งค่ากิจกรรม")
 
--- 🟩 กลุ่ม UI สำหรับ Drop Tracker
 local TrackerLeftGroup = Tabs.Tracker:AddLeftGroupbox("ตั้งค่าบอทจด")
 local TrackerRightGroup = Tabs.Tracker:AddRightGroupbox("สถิติ (Grand Total)")
 
@@ -50,7 +56,7 @@ ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้ง�
 -- ==========================================
 task.spawn(function()
     local VirtualUser = game:GetService("VirtualUser")
-    game:GetService("Players").LocalPlayer.Idled:Connect(function()
+    player.Idled:Connect(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
     end)
@@ -110,7 +116,6 @@ local globalTrackerData = {
     grandStats = {}
 }
 
--- สร้างโฟลเดอร์ให้ชัวร์
 pcall(function() if not isfolder("AutoRollPRO") then makefolder("AutoRollPRO") end end)
 
 local function loadGlobalTrackerData()
@@ -118,7 +123,6 @@ local function loadGlobalTrackerData()
         local success, decoded = pcall(function() return HttpService:JSONDecode(readfile(dataFileName)) end)
         if success and type(decoded) == "table" then
             globalTrackerData = decoded
-            print("✅ [Tracker] โหลดข้อมูลเก่าสำเร็จ! รอบสะสม: " .. globalTrackerData.totalRounds)
         end
     end
 end
@@ -151,7 +155,7 @@ local function updateGrandTotalLabel()
     table.sort(sortedGrand, function(a, b) return a.amount > b.amount end)
 
     for i, data in ipairs(sortedGrand) do
-        if i > 8 then txt = txt .. "  ...และอื่นๆ\n" break end -- โชว์แค่ 8 อันดับแรกใน UI กันล้น
+        if i > 8 then txt = txt .. "  ...และอื่นๆ\n" break end
         local grandRate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
         txt = txt .. string.format("🏆 %s: %d (%.1f%%)\n", data.name, data.amount, grandRate)
     end
@@ -164,11 +168,8 @@ TrackerLeftGroup:AddToggle("EnableTrackerToggle", {
     Default = false,
     Callback = function(V)
         isTracking = V
-        if V then
-            TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
-        else
-            TrackerStatusLabel:SetText("🔴 สถานะ: ปิดการทำงาน")
-        end
+        if V then TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
+        else TrackerStatusLabel:SetText("🔴 สถานะ: ปิดการทำงาน") end
     end
 })
 
@@ -176,16 +177,13 @@ local function generateTrackerCopyText()
     if globalTrackerData.totalRounds == 0 then return "No data to copy yet." end
     local str = "=== 🏆 CURRENT GRAND TOTAL (" .. globalTrackerData.totalRounds .. " Rounds) ===\n"
     str = str .. "Total Items Dropped: " .. globalTrackerData.grandTotalDrops .. " pcs\n\n"
-    
     local sortedStats = {}
     for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedStats, {name = item, amount = count}) end
     table.sort(sortedStats, function(a, b) return a.amount > b.amount end)
-
     for _, data in ipairs(sortedStats) do
         local rate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
         str = str .. string.format("  - %-20s : %d pcs (%.2f%%)\n", data.name, data.amount, rate)
     end
-    str = str .. "\n(Full history is in workspace/AutoRollPRO/DropTracker_Log.txt)"
     return str
 end
 
@@ -206,7 +204,6 @@ TrackerLeftGroup:AddButton({
 -- ⚙️ ฟังก์ชันจดของดรอป & เซฟไฟล์
 -- ==========================================
 local function finalizeTrackerRound(waveNumber)
-    -- อัปเดต Global Data
     globalTrackerData.totalRounds = globalTrackerData.totalRounds + 1
     globalTrackerData.grandTotalDrops = globalTrackerData.grandTotalDrops + currentTrackerTotal
     for item, count in pairs(currentStats) do
@@ -214,45 +211,25 @@ local function finalizeTrackerRound(waveNumber)
     end
     saveGlobalTrackerData()
 
-    -- จัด Text สำหรับ TXT
     local logText = "\n" .. string.rep("=", 45) .. "\n"
     logText = logText .. string.format("[ROUND INFO] Global: #%d | Session: #%d\n", globalTrackerData.totalRounds, currentSessionRound)
     logText = logText .. "Ended at Wave: " .. waveNumber .. "\n"
     logText = logText .. "Items Dropped This Round: " .. currentTrackerTotal .. " pcs\n"
-    
     for item, count in pairs(currentStats) do
         local rate = currentTrackerTotal > 0 and (count / currentTrackerTotal) * 100 or 0
         logText = logText .. string.format("  - %-20s : %d pcs (%.1f%%)\n", item, count, rate)
     end
     
-    logText = logText .. "\n📈 [GRAND TOTAL AS OF ROUND " .. globalTrackerData.totalRounds .. "]\n"
-    logText = logText .. "Total Accumulated Rounds: " .. globalTrackerData.totalRounds .. "\n"
-    logText = logText .. "Total Accumulated Drops : " .. globalTrackerData.grandTotalDrops .. " pcs\n"
-    
-    local sortedGrand = {}
-    for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedGrand, {name = item, amount = count}) end
-    table.sort(sortedGrand, function(a, b) return a.amount > b.amount end)
-
-    for _, data in ipairs(sortedGrand) do
-        local grandRate = globalTrackerData.grandTotalDrops > 0 and (data.amount / globalTrackerData.grandTotalDrops) * 100 or 0
-        logText = logText .. string.format("  🏆 %-18s : %d pcs (%.2f%%)\n", data.name, data.amount, grandRate)
-    end
-    logText = logText .. string.rep("=", 45) .. "\n"
-
-    -- เซฟลง TXT
-    if appendfile then
-        appendfile(logFileName, logText)
+    if appendfile then appendfile(logFileName, logText)
     elseif writefile then
         local existingText = isfile(logFileName) and readfile(logFileName) or "=== 📊 DETAILED DROP RATE LOG ===\n"
         writefile(logFileName, existingText .. logText)
     end
 
-    -- อัปเดต UI และ รีเซ็ต
     updateGrandTotalLabel()
     currentStats = {}
     currentTrackerTotal = 0
     currentSessionRound = currentSessionRound + 1
-    
     TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
     TrackerInfoLabel:SetText("ประวัติสะสมทั้งหมด: " .. globalTrackerData.totalRounds .. " รอบ")
 end
@@ -287,9 +264,8 @@ local function processTrackerText(rawText)
     end
 end
 
--- ดักจับ UI เปลี่ยนแปลงของ Drop Tracker
-local playerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-playerGui.DescendantAdded:Connect(function(descendant)
+local playerGuiNode = player:WaitForChild("PlayerGui")
+playerGuiNode.DescendantAdded:Connect(function(descendant)
     if descendant:IsA("TextLabel") or descendant:IsA("TextButton") or descendant:IsA("TextBox") then
         if descendant.Text and descendant.Text ~= "" then processTrackerText(descendant.Text) end
         descendant:GetPropertyChangedSignal("Text"):Connect(function()
@@ -317,13 +293,12 @@ local function parsePrice(text)
 end
 
 local function getMoney()
-    local cashLabel = game.Players.LocalPlayer.PlayerGui.MainUI.Frames.Cash.Amount
+    local cashLabel = player.PlayerGui.MainUI.Frames.Cash.Amount
     if cashLabel then return parsePrice(cashLabel.Text) end
     return 0
 end
 
 local function getMyPlot()
-    local player = game.Players.LocalPlayer
     for _, plot in pairs(workspace.Plots:GetChildren()) do
         for _, desc in pairs(plot:GetDescendants()) do
             if desc:IsA("TextLabel") and desc.Text ~= "" then
@@ -352,11 +327,10 @@ end
 -- ==========================================
 local function getGameData()
     local units, mutations = {}, {}
-    local RS = game:GetService("ReplicatedStorage")
     local defaultMuts = {"Normal", "Gold", "Diamond", "Dragonborn", "Beast", "Arrancar", "Admin"}
     for _, v in ipairs(defaultMuts) do table.insert(mutations, v) end
 
-    for _, obj in pairs(RS:GetDescendants()) do
+    for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
         if obj:IsA("ModuleScript") and (obj.Name:find("Info") or obj.Name:find("Data") or obj.Name:find("Character")) then
             local success, data = pcall(function() return require(obj) end)
             if success and type(data) == "table" then
@@ -408,7 +382,6 @@ end
 local webhookLogLines = {}
 local function sendWebhook(unitName, rarity, mutation, price)
     if not Config.WebhookEnabled or not Config.WebhookURL or Config.WebhookURL == "" then return end
-    local player = game.Players.LocalPlayer
     local timestamp = os.date("%H:%M:%S")
 
     table.insert(webhookLogLines, 1, string.format("[%s] ✅ %s | %s | %s", timestamp, unitName, rarity, mutation))
@@ -491,7 +464,7 @@ local function handlePriorityUnit(charModel, rarityText, mutationText)
 end
 
 -- ==========================================
--- 🚀 Auto Roll Tab -> ANTI-STUCK & AUTO JUMP
+-- 🚀 Auto Roll Tab
 -- ==========================================
 RollGroup:AddToggle("AutoRollToggle", {
     Text = "เปิด Auto Roll",
@@ -512,42 +485,33 @@ RollGroup:AddToggle("AutoRollToggle", {
                     if myPlot then
                         local prompt = myPlot:FindFirstChild("RollPrompt", true)
                         if prompt and prompt.Parent:IsA("BasePart") then
-                            local char = game.Players.LocalPlayer.Character
-                            local hrp, hum = char and char:FindFirstChild("HumanoidRootPart"), char and char:FindFirstChildWhichIsA("Humanoid")
+                            local char = player.Character
+                            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
                             
                             if hrp and hum then
                                 local distance = (hrp.Position - prompt.Parent.Position).Magnitude
-                                
                                 if distance > prompt.MaxActivationDistance then
                                     if distance > 30 then
                                         hrp.Velocity = Vector3.zero
-                                        local randomX = math.random(-5, 5)
-                                        local randomZ = math.random(-15, -10)
-                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(randomX, 3, randomZ)
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(math.random(-5, 5), 3, math.random(-15, -10))
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
                                         task.wait(0.5)
                                     end
                                     
                                     hum:MoveTo(prompt.Parent.Position)
-                                    
                                     local waited = 0
                                     local lastPos = hrp.Position
                                     repeat 
                                         task.wait(0.2)
                                         waited = waited + 0.2 
-                                        
-                                        if (hrp.Position - lastPos).Magnitude < 1 then
-                                            hum.Jump = true
-                                        end
+                                        if (hrp.Position - lastPos).Magnitude < 1 then hum.Jump = true end
                                         lastPos = hrp.Position
-                                        
                                         hum:MoveTo(prompt.Parent.Position)
                                     until (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance or waited >= 6
                                     
                                     if (hrp.Position - prompt.Parent.Position).Magnitude <= prompt.MaxActivationDistance then
-                                        local standOffsetX = math.random(-2, 2)
-                                        local standOffsetZ = math.random(2, 4)
-                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(standOffsetX, 0, standOffsetZ)
+                                        hrp.CFrame = prompt.Parent.CFrame * CFrame.new(math.random(-2, 2), 0, math.random(2, 4))
                                         hrp.CFrame = CFrame.lookAt(hrp.Position, prompt.Parent.Position)
                                     end
                                 end
@@ -587,6 +551,65 @@ BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", 
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
 
 -- ==========================================
+-- 🎰 Auto Spin Tab
+-- ==========================================
+local isSpinning = false
+local SpinTicketLabel = SpinStatusGroup:AddLabel("✨ กำลังดึงข้อมูลแต้ม...")
+
+SpinGroup:AddToggle("AutoSpinToggle", {
+    Text = "เปิดบอทสปิน",
+    Default = false,
+    Callback = function(V)
+        isSpinning = V
+        if V then
+            task.spawn(function()
+                while isSpinning do
+                    pcall(function()
+                        local spinRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SpinWheel"):WaitForChild("Spin")
+                        spinRemote:FireServer(1)
+                        spinRemote:FireServer("Spin")
+                        spinRemote:FireServer("Single")
+                        spinRemote:FireServer("x1")
+                        spinRemote:FireServer(true)
+                    end)
+                    task.wait(1.8)
+                end
+            end)
+        end
+    end
+})
+
+task.spawn(function()
+    while true do
+        pcall(function()
+            local mainUI = playerGui:FindFirstChild("MainUI")
+            if mainUI then
+                local spinWheel = mainUI.Frames:FindFirstChild("SpinWheel")
+                if spinWheel then
+                    for _, obj in pairs(spinWheel:GetDescendants()) do
+                        if (obj:IsA("TextLabel") or obj:IsA("TextButton")) and string.find(obj.Text, "Spin") and string.find(obj.Text, "%(") then
+                            SpinTicketLabel:SetText("แต้มที่ใช้: " .. obj.Text) return
+                        end
+                        if obj:IsA("TextLabel") and string.find(obj.Text, "Free") then
+                            SpinTicketLabel:SetText(obj.Text) return
+                        end
+                    end
+                end
+            end
+            local leaderstats = player:FindFirstChild("leaderstats")
+            if leaderstats then
+                local ticket = leaderstats:FindFirstChild("Spins") or leaderstats:FindFirstChild("Tickets") or leaderstats:FindFirstChild("Gems")
+                if ticket then
+                    SpinTicketLabel:SetText(ticket.Name .. " คงเหลือ: " .. tostring(ticket.Value)) return
+                end
+            end
+            SpinTicketLabel:SetText("🎰 บอทสปินกำลังทำงาน...")
+        end)
+        task.wait(1)
+    end
+end)
+
+-- ==========================================
 -- 🌟 Auto Event Tab (Buhara)
 -- ==========================================
 EventGroup:AddToggle("AutoBuharaToggle", { 
@@ -600,7 +623,7 @@ task.spawn(function()
     while true do
         if Config.AutoBuharaEvent then
             local mutationStuffs = workspace:FindFirstChild("MutationStuffs")
-            local getData = game:GetService("ReplicatedStorage"):FindFirstChild("BuharaEventGetData", true)
+            local getData = ReplicatedStorage:FindFirstChild("BuharaEventGetData", true)
             
             if mutationStuffs and getData then
                 local hasFood = false
@@ -612,7 +635,7 @@ task.spawn(function()
                     local success, result = pcall(function() return getData:InvokeServer() end)
                     if success and type(result) == "table" and result.FoodNeeded then
                         IsDoingEvent = true
-                        local char = game.Players.LocalPlayer.Character
+                        local char = player.Character
                         local hrp = char and char:FindFirstChild("HumanoidRootPart")
                         local hum = char and char:FindFirstChildOfClass("Humanoid")
                         local npc = mutationStuffs:FindFirstChild("Buhara")
@@ -644,12 +667,10 @@ task.spawn(function()
                                         if hum then hum.Jump = true end
                                         task.wait(0.5)
                                         firePrompt(foodPrompt)
-                                        
                                         task.wait(1.5)
                                         
                                         local npcPrompt = npc:FindFirstChildWhichIsA("ProximityPrompt", true)
                                         hrp.Velocity = Vector3.zero
-                                        
                                         local targetPos = npc:GetPivot().Position
                                         local safeDistance = 15
                                         
@@ -660,18 +681,15 @@ task.spawn(function()
                                                 safeDistance = 5
                                             elseif parent:IsA("BasePart") then
                                                 targetPos = parent.Position
-                                                local maxDimension = math.max(parent.Size.X, parent.Size.Z)
-                                                safeDistance = (maxDimension / 2) + 6 
+                                                safeDistance = (math.max(parent.Size.X, parent.Size.Z) / 2) + 6 
                                             end
                                         end
                                         
                                         hrp.CFrame = CFrame.lookAt(targetPos + Vector3.new(0, 0, safeDistance), targetPos)
-                                        
                                         task.wait(0.3)
                                         if hum then hum.Jump = true end
                                         task.wait(0.5)
                                         firePrompt(npcPrompt)
-                                        
                                         task.wait(1.5)
                                     end
                                 end
