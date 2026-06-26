@@ -16,7 +16,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local Window = Library:CreateWindow({
     Title = "Auto Roll & Smart Buy (PRO VERSION)",
-    Footer = "PRO Edition + Drop Tracker + Auto Spin",
+    Footer = "PRO Edition + Drop Tracker + Auto Spin + Auto Craft",
     ShowCustomCursor = true,
     AutoShow = true,
 })
@@ -24,7 +24,8 @@ local Window = Library:CreateWindow({
 local Tabs = {
     Main = Window:AddTab("Auto Roll", "play"),
     Buy = Window:AddTab("Auto Buy", "shopping-cart"),
-    Spin = Window:AddTab("Auto Spin", "refresh-cw"), -- 🆕 แท็บสปิน
+    Craft = Window:AddTab("Auto Craft", "hammer"),
+    Spin = Window:AddTab("Auto Spin", "refresh-cw"), 
     Event = Window:AddTab("Auto Event", "star"),
     Tracker = Window:AddTab("Drop Tracker", "clipboard"),
     Webhook = Window:AddTab("Webhook", "bell"),
@@ -34,8 +35,13 @@ local Tabs = {
 
 local RollGroup = Tabs.Main:AddLeftGroupbox("Auto Roll")
 local StatusGroup = Tabs.Main:AddRightGroupbox("สถานะ")
+
 local BuyGroup = Tabs.Buy:AddLeftGroupbox("ตั้งค่าการซื้อ")
 local ListGroup = Tabs.Buy:AddRightGroupbox("รายการที่บันทึก")
+
+local CraftGroup = Tabs.Craft:AddLeftGroupbox("ตั้งค่าการหลอม (Auto Fuse)")
+local CraftStatusGroup = Tabs.Craft:AddRightGroupbox("สถานะการหลอม")
+
 local SpinGroup = Tabs.Spin:AddLeftGroupbox("ตั้งค่า Auto Spin")
 local SpinStatusGroup = Tabs.Spin:AddRightGroupbox("สถานะสปิน")
 local EventGroup = Tabs.Event:AddLeftGroupbox("ตั้งค่ากิจกรรม")
@@ -48,11 +54,12 @@ local WebhookLogGroup = Tabs.Webhook:AddRightGroupbox("Log การแจ้ง
 local DebugGroup = Tabs.Debug:AddLeftGroupbox("Debug Tools")
 
 local UI_StatusLabel = StatusGroup:AddLabel("สถานะ: หยุดทำงาน")
+local UI_CraftStatus = CraftStatusGroup:AddLabel("สถานะ: 🔴 ปิดการทำงาน")
 local UI_WebhookLog = WebhookLogGroup:AddLabel("ยังไม่มีการแจ้งเตือน")
 ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้งหมด", Values = {"(ไม่มีรายการ)"}, Default = 1, Callback = function() end })
 
 -- ==========================================
--- 🛡️ Anti-AFK & Anti-Purchase Popups
+-- 🛡️ Anti-AFK, Anti-Purchase Popups & Anti-Text Spam
 -- ==========================================
 task.spawn(function()
     local VirtualUser = game:GetService("VirtualUser")
@@ -71,14 +78,36 @@ pcall(function()
     end
 end)
 
+if not getgenv().AntiTextHooked then
+    getgenv().AntiTextHooked = true
+    local mt = getrawmetatable(game)
+    local oldNewIndex = mt.__newindex
+    setreadonly(mt, false)
+
+    mt.__newindex = newcclosure(function(t, k, v)
+        if k == "Text" and type(v) == "string" and string.find(v, "You don't have enough") then
+            if t:IsA("TextLabel") then
+                t.Visible = false
+                t.TextTransparency = 1
+                pcall(function() t.Parent.Visible = false end)
+            end
+            v = "" 
+        end
+        return oldNewIndex(t, k, v)
+    end)
+    setreadonly(mt, true)
+end
+
 -- ==========================================
--- ⚙️ ค่าเริ่มต้นระบบ Auto Roll
+-- ⚙️ ค่าเริ่มต้นระบบต่างๆ
 -- ==========================================
 local Config = { 
     AutoRoll = false, 
     RollDelay = 1, 
     MasterAutoBuy = false, 
     AutoBuharaEvent = false,
+    AutoCraft = false,
+    CraftDelay = 0.5,
     GodPriority = false,
     SecretPriority = false,
     MutDragonborn = false,
@@ -136,9 +165,6 @@ end
 
 loadGlobalTrackerData()
 
--- ==========================================
--- 📋 UI สำหรับ Drop Tracker
--- ==========================================
 local TrackerStatusLabel = TrackerLeftGroup:AddLabel("🔴 สถานะ: ปิดการทำงาน")
 local TrackerInfoLabel = TrackerLeftGroup:AddLabel("ประวัติสะสมทั้งหมด: " .. globalTrackerData.totalRounds .. " รอบ")
 local TrackerGrandLabel = TrackerRightGroup:AddLabel("รอข้อมูลอัปเดต...")
@@ -200,9 +226,6 @@ TrackerLeftGroup:AddButton({
     end
 })
 
--- ==========================================
--- ⚙️ ฟังก์ชันจดของดรอป & เซฟไฟล์
--- ==========================================
 local function finalizeTrackerRound(waveNumber)
     globalTrackerData.totalRounds = globalTrackerData.totalRounds + 1
     globalTrackerData.grandTotalDrops = globalTrackerData.grandTotalDrops + currentTrackerTotal
@@ -323,7 +346,7 @@ local function firePrompt(prompt)
 end
 
 -- ==========================================
--- 🔍 Dynamic Data Fetcher 
+-- 🔍 Dynamic Data Fetcher
 -- ==========================================
 local function getGameData()
     local units, mutations = {}, {}
@@ -549,6 +572,90 @@ BuyGroup:AddDivider()
 BuyGroup:AddInput("DeleteInput", { Text = "พิมพ์เลขที่จะลบ", Default = "", Numeric = true, Finished = false, Placeholder = "เลข...", Callback = function(V) local idx = tonumber(V) if idx then SelectedDeleteIndex = idx end end })
 BuyGroup:AddButton({ Text = "ลบรายการที่พิมพ์", Func = function() local idx = SelectedDeleteIndex if #BuyList == 0 then return end if idx >= 1 and idx <= #BuyList then table.remove(BuyList, idx) updateUI() end end })
 BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() BuyList = {} updateUI() end })
+
+
+-- ==========================================
+-- 🔨 Auto Craft Tab (Auto Fuse) [🔥 แก้ไขบัค + เพิ่ม Turbo]
+-- ==========================================
+CraftGroup:AddToggle("AutoCraftToggle", {
+    Text = "เปิด Auto Fuse (หลอมหิน)",
+    Default = false,
+    Callback = function(V)
+        Config.AutoCraft = V
+    end
+})
+
+CraftGroup:AddSlider("CraftDelay", {
+    Text = "ความเร็วในการหลอม (วินาที)",
+    Default = 0.5,
+    Min = 0.1,
+    Max = 2,
+    Rounding = 1,
+    Callback = function(V)
+        Config.CraftDelay = V
+    end
+})
+
+CraftGroup:AddDivider()
+CraftGroup:AddLabel("เลือกหินที่จะหลอมอัปเกรด:")
+CraftGroup:AddToggle("Craft_Common", { Text = "Common Fragment", Default = true })
+CraftGroup:AddToggle("Craft_Rare", { Text = "Rare Fragment", Default = true })
+CraftGroup:AddToggle("Craft_Epic", { Text = "Epic Fragment", Default = true })
+CraftGroup:AddToggle("Craft_Legendary", { Text = "Legendary Fragment", Default = false })
+CraftGroup:AddToggle("Craft_Mythic", { Text = "Mythic Fragment", Default = false })
+CraftGroup:AddToggle("Craft_Secret", { Text = "Secret Fragment", Default = false })
+
+task.spawn(function()
+    local fuseRemote = nil
+    
+    pcall(function()
+        -- เลิกสุ่มหา บังคับชี้ที่อยู่ของแท้ตรงๆ เท่านั้น!
+        fuseRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FragmentFusion"):WaitForChild("Request")
+    end)
+
+    while true do
+        if Config.AutoCraft and fuseRemote then
+            UI_CraftStatus:SetText("สถานะ: 🟢 กำลังหลอมหินเบื้องหลัง...")
+            
+            local fragmentsToFuse = {}
+            -- ✅ แก้จาก Options เป็น Toggles แล้ว
+            if Toggles.Craft_Common.Value then table.insert(fragmentsToFuse, "Common Fragment") end
+            if Toggles.Craft_Rare.Value then table.insert(fragmentsToFuse, "Rare Fragment") end
+            if Toggles.Craft_Epic.Value then table.insert(fragmentsToFuse, "Epic Fragment") end
+            if Toggles.Craft_Legendary.Value then table.insert(fragmentsToFuse, "Legendary Fragment") end
+            if Toggles.Craft_Mythic.Value then table.insert(fragmentsToFuse, "Mythic Fragment") end
+            if Toggles.Craft_Secret.Value then table.insert(fragmentsToFuse, "Secret Fragment") end
+
+            for _, fragName in ipairs(fragmentsToFuse) do
+                if not Config.AutoCraft then break end 
+                
+                -- 🥷 Stealth Turbo: สุ่มยิง 2-4 ครั้งให้ไม่ซ้ำแพทเทิร์น
+                local burstCount = math.random(2, 4) 
+                
+                for i = 1, burstCount do
+                    pcall(function()
+                        fuseRemote:FireServer(fragName)
+                    end)
+                    -- ⏱️ Micro-Delay: สุ่มหน่วงเวลา 0.05 - 0.15 วิระหว่างนัด (เหมือนคนกดเมาส์ไวๆ)
+                    task.wait(math.random(5, 15) / 100) 
+                end
+                
+                -- ⏱️ Main-Delay: หน่วงเวลาหลัก + สุ่มบวกเวลาเพิ่มอีก 0.1-0.3 วิ เพื่อความเนียน
+                task.wait(Config.CraftDelay + (math.random(1, 3) / 10))
+            end
+            
+            task.wait(1.5)
+        else
+            if not fuseRemote and Config.AutoCraft then
+                UI_CraftStatus:SetText("สถานะ: ❌ หาระบบหลอมหินไม่เจอ!")
+            else
+                UI_CraftStatus:SetText("สถานะ: 🔴 ปิดการทำงาน")
+            end
+            task.wait(1)
+        end
+    end
+end)
+
 
 -- ==========================================
 -- 🎰 Auto Spin Tab
