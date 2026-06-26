@@ -59,7 +59,7 @@ local UI_WebhookLog = WebhookLogGroup:AddLabel("ยังไม่มีกา�
 ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้งหมด", Values = {"(ไม่มีรายการ)"}, Default = 1, Callback = function() end })
 
 -- ==========================================
--- 🛡️ Anti-AFK & ระบบสกัดกั้นข้อความ + API ตรวจสอบหิน (AFK 100% Safe)
+-- 🛡️ Anti-AFK & ระบบสกัดกั้นข้อความ V2 (อัปเดตตัวเองได้ตลอดเวลา)
 -- ==========================================
 task.spawn(function()
     local VirtualUser = game:GetService("VirtualUser")
@@ -78,7 +78,6 @@ pcall(function()
     end
 end)
 
--- สร้างตารางสถานะของหิน (ค่าเริ่มต้นคือ true = ให้ลองยิงเช็คดู)
 getgenv().FragmentStatus = {
     ["Common Fragment"] = true,
     ["Rare Fragment"] = true,
@@ -88,30 +87,42 @@ getgenv().FragmentStatus = {
     ["Secret Fragment"] = true,
 }
 
-if not getgenv().AntiTextHooked then
-    getgenv().AntiTextHooked = true
+-- 🎯 ฟังก์ชันเช็คข้อความ ที่สามารถอัปเดตใหม่ได้ทุกครั้งที่กดรัน
+getgenv().ProcessTextHook = function(t, k, v)
+    if k == "Text" and type(v) == "string" and string.find(v:lower(), "don't have enough") then
+        
+        -- อ่านชื่อหินจากคำด่า แล้วสั่ง "ปิดสวิตช์" การหลอมหินชนิดนั้นทันที!
+        if getgenv().FragmentStatus then
+            for fragName, _ in pairs(getgenv().FragmentStatus) do
+                if string.find(v:lower(), fragName:lower()) then
+                    getgenv().FragmentStatus[fragName] = false 
+                end
+            end
+        end
+
+        -- ซ่อนและทำลายข้อความทิ้ง
+        if typeof(t) == "Instance" and t:IsA("TextLabel") then
+            t.Visible = false
+            t.TextTransparency = 1
+            pcall(function() 
+                if t.Parent and t.Parent:IsA("Frame") then t.Parent:Destroy() else t:Destroy() end 
+            end)
+        end
+        return "" -- คืนค่าว่างเปล่ากลับไป
+    end
+    return v
+end
+
+-- ฝัง Hook หลักเข้าเกม (ทำแค่ครั้งเดียว)
+if not getgenv().AntiTextHooked_V2 then
+    getgenv().AntiTextHooked_V2 = true
     local mt = getrawmetatable(game)
     local oldNewIndex = mt.__newindex
     setreadonly(mt, false)
 
     mt.__newindex = newcclosure(function(t, k, v)
-        if k == "Text" and type(v) == "string" and string.find(v, "don't have enough") then
-            
-            -- 🎯 ทีเด็ด: อ่านชื่อหินจากคำด่า แล้วสั่ง "ปิดสวิตช์" การหลอมหินชนิดนั้นทันที!
-            for fragName, _ in pairs(getgenv().FragmentStatus) do
-                if string.find(v, fragName) then
-                    getgenv().FragmentStatus[fragName] = false 
-                end
-            end
-
-            if t:IsA("TextLabel") then
-                t.Visible = false
-                t.TextTransparency = 1
-                pcall(function() 
-                    if t.Parent and t.Parent:IsA("Frame") then t.Parent:Destroy() else t:Destroy() end 
-                end)
-            end
-            v = "" 
+        if getgenv().ProcessTextHook then
+            v = getgenv().ProcessTextHook(t, k, v)
         end
         return oldNewIndex(t, k, v)
     end)
@@ -122,28 +133,17 @@ end
 -- ⚙️ ค่าเริ่มต้นระบบต่างๆ
 -- ==========================================
 local Config = { 
-    AutoRoll = false, 
-    RollDelay = 1, 
-    MasterAutoBuy = false, 
-    AutoBuharaEvent = false,
-    AutoCraft = false,
-    CraftDelay = 0.5,
-    GodPriority = false,
-    SecretPriority = false,
-    MutDragonborn = false,
-    MutBeast = false,
-    MutArrancar = false,
-    WebhookURL = "",
-    WebhookEnabled = false,
+    AutoRoll = false, RollDelay = 1, MasterAutoBuy = false, AutoBuharaEvent = false,
+    AutoCraft = false, CraftDelay = 0.5,
+    GodPriority = false, SecretPriority = false, MutDragonborn = false, MutBeast = false, MutArrancar = false,
+    WebhookURL = "", WebhookEnabled = false,
 }
 local BuyList = {}
 local TempName, TempRarity, TempMut = "Any", "Any", "Any"
 local SelectedDeleteIndex = 1
 
-local WaitingForPriority = false 
-local IsDoingEvent = false 
-local CurrentPriorityLevel = 0 
-local CurrentPriorityUnit = nil
+local WaitingForPriority, IsDoingEvent = false, false 
+local CurrentPriorityLevel, CurrentPriorityUnit = 0, nil
 local PriorityTargetName = ""
 
 -- ==========================================
@@ -159,20 +159,13 @@ local recentDrops = {}
 local logFileName = "AutoRollPRO/DropTracker_Log.txt"
 local dataFileName = "AutoRollPRO/DropTracker_Data.json"
 
-local globalTrackerData = {
-    totalRounds = 0,
-    grandTotalDrops = 0,
-    grandStats = {}
-}
-
+local globalTrackerData = { totalRounds = 0, grandTotalDrops = 0, grandStats = {} }
 pcall(function() if not isfolder("AutoRollPRO") then makefolder("AutoRollPRO") end end)
 
 local function loadGlobalTrackerData()
     if isfile and isfile(dataFileName) then
         local success, decoded = pcall(function() return HttpService:JSONDecode(readfile(dataFileName)) end)
-        if success and type(decoded) == "table" then
-            globalTrackerData = decoded
-        end
+        if success and type(decoded) == "table" then globalTrackerData = decoded end
     end
 end
 
@@ -191,10 +184,8 @@ local TrackerGrandLabel = TrackerRightGroup:AddLabel("รอข้อมูล�
 
 local function updateGrandTotalLabel()
     if globalTrackerData.totalRounds == 0 then
-        TrackerGrandLabel:SetText("ยังไม่มีข้อมูลสถิติ\nเปิดบอทเล่นให้จบสัก 1 รอบเพื่อดูผล")
-        return
+        TrackerGrandLabel:SetText("ยังไม่มีข้อมูลสถิติ\nเปิดบอทเล่นให้จบสัก 1 รอบเพื่อดูผล") return
     end
-    
     local txt = string.format("🎮 ยอดรวม %d รอบ\n📦 ไอเทมทั้งหมด: %d ชิ้น\n\n", globalTrackerData.totalRounds, globalTrackerData.grandTotalDrops)
     local sortedGrand = {}
     for item, count in pairs(globalTrackerData.grandStats) do table.insert(sortedGrand, {name = item, amount = count}) end
@@ -210,8 +201,7 @@ end
 updateGrandTotalLabel()
 
 TrackerLeftGroup:AddToggle("EnableTrackerToggle", {
-    Text = "เปิดบอทจดของดรอป (Tracker)",
-    Default = false,
+    Text = "เปิดบอทจดของดรอป (Tracker)", Default = false,
     Callback = function(V)
         isTracking = V
         if V then TrackerStatusLabel:SetText("🟢 สถานะ: กำลังจด (รอบ Session: " .. currentSessionRound .. ")")
@@ -237,21 +227,15 @@ TrackerLeftGroup:AddButton({
     Text = "📋 Copy Grand Total",
     Func = function()
         local textToCopy = generateTrackerCopyText()
-        if setclipboard then
-            setclipboard(textToCopy)
-            Library:Notify("✅ ก๊อปปี้สถิติทั้งหมดลง Clipboard แล้ว!")
-        else
-            Library:Notify("❌ ตัวรันนี้ไม่รองรับระบบก๊อปปี้")
-        end
+        if setclipboard then setclipboard(textToCopy) Library:Notify("✅ ก๊อปปี้สถิติทั้งหมดลง Clipboard แล้ว!")
+        else Library:Notify("❌ ตัวรันนี้ไม่รองรับระบบก๊อปปี้") end
     end
 })
 
 local function finalizeTrackerRound(waveNumber)
     globalTrackerData.totalRounds = globalTrackerData.totalRounds + 1
     globalTrackerData.grandTotalDrops = globalTrackerData.grandTotalDrops + currentTrackerTotal
-    for item, count in pairs(currentStats) do
-        globalTrackerData.grandStats[item] = (globalTrackerData.grandStats[item] or 0) + count
-    end
+    for item, count in pairs(currentStats) do globalTrackerData.grandStats[item] = (globalTrackerData.grandStats[item] or 0) + count end
     saveGlobalTrackerData()
 
     local logText = "\n" .. string.rep("=", 45) .. "\n"
@@ -420,7 +404,7 @@ local function updateUI()
 end
 
 -- ==========================================
--- 🔔 Webhook
+-- 🔔 Webhook Tab & 📡 Auto Buy Listener
 -- ==========================================
 local webhookLogLines = {}
 local function sendWebhook(unitName, rarity, mutation, price)
@@ -434,8 +418,7 @@ local function sendWebhook(unitName, rarity, mutation, price)
     task.spawn(function()
         local body = HttpService:JSONEncode({
             embeds = {{
-                title = "✅ ซื้อตัวละครสำเร็จ!",
-                color = 5814783,
+                title = "✅ ซื้อตัวละครสำเร็จ!", color = 5814783,
                 fields = {
                     { name = "👤 ตัวละคร", value = unitName, inline = true },
                     { name = "⭐ Rarity", value = rarity, inline = true },
@@ -510,8 +493,7 @@ end
 -- 🚀 Auto Roll Tab
 -- ==========================================
 RollGroup:AddToggle("AutoRollToggle", {
-    Text = "เปิด Auto Roll",
-    Default = false,
+    Text = "เปิด Auto Roll", Default = false,
     Callback = function(V)
         Config.AutoRoll = V
         if V then
@@ -598,22 +580,13 @@ BuyGroup:AddButton({ Text = "ลบทั้งหมด", Func = function() Buy
 -- 🔨 Auto Craft Tab (Probe Strategy - 30m Check)
 -- ==========================================
 CraftGroup:AddToggle("AutoCraftToggle", {
-    Text = "เปิด Auto Fuse (หลอมหิน)",
-    Default = false,
-    Callback = function(V)
-        Config.AutoCraft = V
-    end
+    Text = "เปิด Auto Fuse (หลอมหิน)", Default = false,
+    Callback = function(V) Config.AutoCraft = V end
 })
 
 CraftGroup:AddSlider("CraftDelay", {
-    Text = "ความเร็วในการหลอม (วินาที)",
-    Default = 0.5,
-    Min = 0.1,
-    Max = 2,
-    Rounding = 1,
-    Callback = function(V)
-        Config.CraftDelay = V
-    end
+    Text = "ความเร็วในการหลอม (วินาที)", Default = 0.5, Min = 0.1, Max = 2, Rounding = 1,
+    Callback = function(V) Config.CraftDelay = V end
 })
 
 CraftGroup:AddDivider()
@@ -627,12 +600,11 @@ CraftGroup:AddToggle("Craft_Secret", { Text = "Secret Fragment", Default = false
 
 task.spawn(function()
     local fuseRemote = nil
-    
     pcall(function()
         fuseRemote = game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("FragmentFusion"):WaitForChild("Request")
     end)
 
-    -- ⏱️ ระบบรีเซ็ตสถานะ: ทุกๆ 30 นาที (1800 วินาที) ให้บอทลอง "สุ่มยิงเช็ค" อีกรอบ
+    -- ⏱️ ระบบรีเซ็ตสถานะ: ทุกๆ 30 นาที (1800 วินาที)
     task.spawn(function()
         while true do
             task.wait(1800) 
@@ -657,14 +629,13 @@ task.spawn(function()
             for _, fragName in ipairs(fragmentsToFuse) do
                 if not Config.AutoCraft then break end 
                 
-                -- 🎯 ยิงเฉพาะหินที่สวิตช์ยังเปิดอยู่ (หินที่ยังไม่โดนเซิร์ฟเวอร์แจ้งว่าของหมด)
+                -- 🎯 ยิงเฉพาะหินที่สวิตช์ยังเปิดอยู่
                 if getgenv().FragmentStatus[fragName] then
                     UI_CraftStatus:SetText("สถานะ: ⚡ กำลังพยายามหลอม " .. fragName)
                     
                     pcall(function() fuseRemote:FireServer(fragName) end)
                     
                     isFusingAnything = true
-                    
                     task.wait(Config.CraftDelay)
                 end
             end
@@ -693,8 +664,7 @@ local isSpinning = false
 local SpinTicketLabel = SpinStatusGroup:AddLabel("✨ กำลังดึงข้อมูลแต้ม...")
 
 SpinGroup:AddToggle("AutoSpinToggle", {
-    Text = "เปิดบอทสปิน",
-    Default = false,
+    Text = "เปิดบอทสปิน", Default = false,
     Callback = function(V)
         isSpinning = V
         if V then
@@ -735,9 +705,7 @@ task.spawn(function()
             local leaderstats = player:FindFirstChild("leaderstats")
             if leaderstats then
                 local ticket = leaderstats:FindFirstChild("Spins") or leaderstats:FindFirstChild("Tickets") or leaderstats:FindFirstChild("Gems")
-                if ticket then
-                    SpinTicketLabel:SetText(ticket.Name .. " คงเหลือ: " .. tostring(ticket.Value)) return
-                end
+                if ticket then SpinTicketLabel:SetText(ticket.Name .. " คงเหลือ: " .. tostring(ticket.Value)) return end
             end
             SpinTicketLabel:SetText("🎰 บอทสปินกำลังทำงาน...")
         end)
@@ -749,8 +717,7 @@ end)
 -- 🌟 Auto Event Tab (Buhara)
 -- ==========================================
 EventGroup:AddToggle("AutoBuharaToggle", { 
-    Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", 
-    Default = false, 
+    Text = "เปิดทำเควส Hunter Exam อัตโนมัติ", Default = false, 
     Callback = function(V) Config.AutoBuharaEvent = V end 
 })
 EventGroup:AddLabel("หน่วงเวลารอไอเทม + ระบบวัดความอ้วน NPC\nป้องกันการวาปจมในตัว NPC ยักษ์ 100%")
