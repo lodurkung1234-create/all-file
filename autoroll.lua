@@ -623,36 +623,50 @@ task.spawn(function()
         if Config.AutoChallengeBoss and hrp then
             pcall(function()
                 for _, obj in pairs(workspace:GetDescendants()) do
-                    if obj:IsA("TextLabel") and string.find(string.lower(obj.Text), "challenge now!") then
-                        IsDoingEvent = true
-                        UI_StatusLabel:SetText("สถานะ: ⚔️ เจอป้าย Challenge! รีบวาร์ปไปรอ...")
+                    if obj:IsA("TextLabel") then
+                        local textLower = string.lower(obj.Text)
                         
-                        local doorModel = obj:FindFirstAncestorOfClass("Model")
-                        local prompt = doorModel and doorModel:FindFirstChildWhichIsA("ProximityPrompt", true)
-                        
-                        if prompt then
-                            -- 1. วาร์ปไปยืนจ่อหน้าประตูก่อนเลย (ชิงพื้นที่)
-                            hrp.Velocity = Vector3.zero
-                            hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
-                            task.wait(0.2) -- รอแค่ 0.2 วิให้ตัวละครโหลดเข้าที่
+                        -- ⏳ โหมดที่ 1: ติดคูลดาวน์ (ดึงเวลามาโชว์)
+                        if string.find(textLower, "challenge in:") then
+                            -- แยกเอาเฉพาะตัวเลขเวลามาแสดง
+                            local timeLeft = string.match(obj.Text, "%d+:%d+:%d+") or "กำลังคำนวณ..."
+                            UI_StatusLabel:SetText("สถานะ: ⏳ รอเวลาบอสเปิดอีก (" .. timeLeft .. ") ฟาร์ม Wave ต่อ...")
                             
-                            -- 2. สั่ง EndWave
-                            if Remotes and Remotes.Start:FindFirstChild("EndWave") then 
-                                Remotes.Start.EndWave:FireServer() 
+                            -- มั่นใจว่าไม่ได้ล็อค event เพื่อให้ Auto Wave ทำงานได้
+                            if not string.find(UI_StatusLabel.Text, "เข้าประตู Challenge") then
+                                IsDoingEvent = false 
                             end
                             
-                            -- 3. สแปมกดปุ่ม E ทันทีแบบรัวๆ (ไม่รอ task.wait นานๆ แบบเมื่อก่อน)
-                            -- ยิงคำสั่งกดรัวๆ 20 รอบ ในเวลาไม่ถึง 1 วินาที เพื่อแซง Auto Wave ของเกม
-                            UI_StatusLabel:SetText("สถานะ: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
-                            for i = 1, 20 do
-                                firePrompt(prompt)
-                                task.wait(0.05) 
-                            end
+                        -- 🚀 โหมดที่ 2: ถึงเวลาบอสเปิด (บุกทันที)
+                        elseif string.find(textLower, "challenge now!") then
+                            IsDoingEvent = true
+                            UI_StatusLabel:SetText("สถานะ: ⚔️ บอสเปิดแล้ว! ทิ้ง Wave รีบไปเข้า...")
                             
-                            UI_StatusLabel:SetText("สถานะ: ✅ น่าจะเข้า Challenge ได้แล้ว!")
-                            task.wait(5) -- พักกันลูปวนซ้ำ
+                            local doorModel = obj:FindFirstAncestorOfClass("Model")
+                            local prompt = doorModel and doorModel:FindFirstChildWhichIsA("ProximityPrompt", true)
+                            
+                            if prompt then
+                                -- 1. วาร์ปไปจ่อประตู
+                                hrp.Velocity = Vector3.zero
+                                hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
+                                task.wait(0.2)
+                                
+                                -- 2. สั่งจบ Wave
+                                if Remotes and Remotes.Start:FindFirstChild("EndWave") then 
+                                    Remotes.Start.EndWave:FireServer() 
+                                end
+                                
+                                -- 3. สแปมกดรัวๆ แย่งจังหวะ
+                                UI_StatusLabel:SetText("สถานะ: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
+                                for i = 1, 20 do
+                                    firePrompt(prompt)
+                                    task.wait(0.05) 
+                                end
+                                
+                                UI_StatusLabel:SetText("สถานะ: ✅ เข้าประตู Challenge แล้ว!")
+                                task.wait(5) -- พักกันลูปวนซ้ำ
+                            end
                         end
-                        IsDoingEvent = false
                     end
                 end
             end)
