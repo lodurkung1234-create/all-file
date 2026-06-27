@@ -45,7 +45,8 @@ local CraftStatusGroup = Tabs.Craft:AddRightGroupbox("สถานะการ�
 local SpinGroup = Tabs.Spin:AddLeftGroupbox("ตั้งค่า Auto Spin")
 local SpinStatusGroup = Tabs.Spin:AddRightGroupbox("สถานะสปิน")
 local EventGroup = Tabs.Event:AddLeftGroupbox("ตั้งค่ากิจกรรม & บอส")
-
+local EventStatusGroup = Tabs.Event:AddRightGroupbox("สถานะกิจกรรม & บอส")
+local UI_BossStatus = EventStatusGroup:AddLabel("สถานะบอส: 🔴 ปิดการทำงาน")
 local TrackerLeftGroup = Tabs.Tracker:AddLeftGroupbox("ตั้งค่าบอทจด")
 local TrackerRightGroup = Tabs.Tracker:AddRightGroupbox("สถิติ (Grand Total)")
 
@@ -622,25 +623,28 @@ task.spawn(function()
         -- 3. ลูป Challenge Boss (ดักจับป้าย -> วาร์ปไปรอ -> EndWave -> สแปมกด)
         if Config.AutoChallengeBoss and hrp then
             pcall(function()
+                local foundBossSign = false -- ตัวแปรเช็คว่าหาป้ายเจอไหม
+                
                 for _, obj in pairs(workspace:GetDescendants()) do
                     if obj:IsA("TextLabel") then
                         local textLower = string.lower(obj.Text)
                         
-                        -- ⏳ โหมดที่ 1: ติดคูลดาวน์ (ดึงเวลามาโชว์)
+                        -- ⏳ โหมดที่ 1: ติดคูลดาวน์ (ดึงเวลามาโชว์ที่ UI บอส)
                         if string.find(textLower, "challenge in:") then
-                            -- แยกเอาเฉพาะตัวเลขเวลามาแสดง
+                            foundBossSign = true
                             local timeLeft = string.match(obj.Text, "%d+:%d+:%d+") or "กำลังคำนวณ..."
-                            UI_StatusLabel:SetText("สถานะ: ⏳ รอเวลาบอสเปิดอีก (" .. timeLeft .. ") ฟาร์ม Wave ต่อ...")
+                            UI_BossStatus:SetText("สถานะบอส: ⏳ รอเวลาเปิด (" .. timeLeft .. ")")
                             
-                            -- มั่นใจว่าไม่ได้ล็อค event เพื่อให้ Auto Wave ทำงานได้
-                            if not string.find(UI_StatusLabel.Text, "เข้าประตู Challenge") then
+                            -- ไม่ล็อค event เพื่อให้ฟาร์ม Wave ต่อได้
+                            if not string.find(UI_BossStatus.Text, "เข้าประตู") then
                                 IsDoingEvent = false 
                             end
                             
                         -- 🚀 โหมดที่ 2: ถึงเวลาบอสเปิด (บุกทันที)
                         elseif string.find(textLower, "challenge now!") then
+                            foundBossSign = true
                             IsDoingEvent = true
-                            UI_StatusLabel:SetText("สถานะ: ⚔️ บอสเปิดแล้ว! ทิ้ง Wave รีบไปเข้า...")
+                            UI_BossStatus:SetText("สถานะบอส: ⚔️ บอสเปิดแล้ว! ทิ้ง Wave รีบไปเข้า...")
                             
                             local doorModel = obj:FindFirstAncestorOfClass("Model")
                             local prompt = doorModel and doorModel:FindFirstChildWhichIsA("ProximityPrompt", true)
@@ -657,19 +661,27 @@ task.spawn(function()
                                 end
                                 
                                 -- 3. สแปมกดรัวๆ แย่งจังหวะ
-                                UI_StatusLabel:SetText("สถานะ: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
+                                UI_BossStatus:SetText("สถานะบอส: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
                                 for i = 1, 20 do
                                     firePrompt(prompt)
                                     task.wait(0.05) 
                                 end
                                 
-                                UI_StatusLabel:SetText("สถานะ: ✅ เข้าประตู Challenge แล้ว!")
+                                UI_BossStatus:SetText("สถานะบอส: ✅ เข้าประตู Challenge แล้ว!")
                                 task.wait(5) -- พักกันลูปวนซ้ำ
                             end
                         end
                     end
                 end
+                
+                -- ถ้าเปิดสวิตช์ไว้ แต่ยังหาป้ายไม่เจอ (เช่น อยู่ไกลไป)
+                if not foundBossSign then
+                    UI_BossStatus:SetText("สถานะบอส: 🔍 กำลังค้นหาประตูบอส...")
+                end
             end)
+        else
+            -- ถ้าปิดสวิตช์ Auto Challenge Boss ให้ขึ้นว่าปิดการทำงาน
+            UI_BossStatus:SetText("สถานะบอส: 🔴 ปิดการทำงาน")
         end
 
         task.wait(1)
