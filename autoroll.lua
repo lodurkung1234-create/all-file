@@ -600,15 +600,13 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
                         -- ==========================================
-                        -- 🐉 1. ระบบมังกร (Make a wish) + เลือกพรจาก Dropdown
+                        -- 🐉 1. ระบบมังกร (Make a wish) ฉบับนิ่งเสถียร
                         -- ==========================================
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish")) then
                             IsDoingEvent = true
                             
-                            local promptCF
-                            if obj.Parent:IsA("Attachment") then promptCF = obj.Parent.WorldCFrame
-                            elseif obj.Parent:IsA("BasePart") then promptCF = obj.Parent.CFrame
-                            else promptCF = obj.Parent:GetPivot() end
+                            local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
+                                            (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
                             
                             hrp.Velocity = Vector3.zero
                             hrp.Anchored = true 
@@ -616,27 +614,38 @@ task.spawn(function()
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
                             task.wait(0.5) 
                             
-                            for i = 1, 4 do firePrompt(obj); task.wait(0.2) end
-                            task.wait(1.5) -- รอหน้า UI เด้ง
+                            -- 1. กดเปิดหน้าต่าง "แค่ครั้งเดียว" แล้วรอให้ UI ปรากฏจริงๆ
+                            firePrompt(obj)
                             
-                            -- กด "เลือกพร" (ฝั่งซ้าย) ตาม Dropdown ที่เราเลือกไว้ใน UI
-                            local targetWish = Config.WishChoice or "million dollars"
-                            for _, v in pairs(playerGui:GetDescendants()) do
-                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(string.lower(v.Text), targetWish) then
-                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
-                                    if btn and getconnections then
-                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                            -- รอสูงสุด 3 วินาที เพื่อให้มั่นใจว่าหน้า UI เด้งขึ้นมาแล้ว
+                            local uiFound = false
+                            for i = 1, 15 do
+                                task.wait(0.2)
+                                -- เช็คว่า UI ของมังกรมีตัวตนอยู่จริงๆ หรือยัง
+                                for _, v in pairs(playerGui:GetDescendants()) do
+                                    if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(v.Text, "Make Wish") then
+                                        uiFound = true break
                                     end
                                 end
+                                if uiFound then break end
                             end
-                            task.wait(0.5)
                             
-                            -- กด "Make Wish" (ฝั่งขวา)
-                            for _, v in pairs(playerGui:GetDescendants()) do
-                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.lower(v.Text) == "make wish" then
-                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
-                                    if btn and getconnections then
-                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                            if uiFound then
+                                -- 2. เลือกพร (ฝั่งซ้าย)
+                                local targetWish = Config.WishChoice or "million dollars"
+                                for _, v in pairs(playerGui:GetDescendants()) do
+                                    if (v:IsA("TextButton")) and string.find(string.lower(v.Text), string.lower(targetWish)) then
+                                        -- ลองยิง Event ไปที่ปุ่ม
+                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                        task.wait(0.3)
+                                    end
+                                end
+                                
+                                -- 3. กด Make Wish (ฝั่งขวา)
+                                for _, v in pairs(playerGui:GetDescendants()) do
+                                    if v:IsA("TextButton") and string.lower(v.Text) == "make wish" then
+                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                        break -- กดอันเดียวพอ
                                     end
                                 end
                             end
@@ -647,9 +656,9 @@ task.spawn(function()
                         end
 
                         -- ==========================================
-                        -- ☄️ 2. ระบบตามล่าอุกกาบาต (Meteor) + Auto Spin
+                        -- ☄️ 2. ระบบตามล่าอุกกาบาต + Auto Claim (เวอร์ชันเน้น Claim จบไว)
                         -- ==========================================
-                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor")) then
+                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
                             IsDoingEvent = true
                             
                             local promptCF
@@ -660,26 +669,33 @@ task.spawn(function()
                             -- วาร์ปไปจ่อหน้าอุกกาบาต
                             hrp.Velocity = Vector3.zero
                             hrp.Anchored = true
-                            hrp.CFrame = promptCF * CFrame.new(0, 3, 3) -- อาจต้องปรับระยะตามขนาดอุกกาบาต
+                            hrp.CFrame = promptCF * CFrame.new(0, -2, 8) 
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
                             task.wait(0.5)
                             
-                            -- สแปมกด E ใส่อุกกาบาต
+                            -- สแปมกด E เพื่อเก็บอุกกาบาต
                             for i = 1, 4 do firePrompt(obj); task.wait(0.2) end
                             
-                            task.wait(2) -- รอหน้าจอ UI Spin เด้งขึ้นมา
+                            -- รอให้ระบบสุ่มเด้ง (ปรับเวลาตามจริง)
+                            task.wait(1.5) 
                             
-                            -- ค้นหาและกดปุ่ม "Spin" ในหน้า UI
-                            for _, v in pairs(playerGui:GetDescendants()) do
-                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(string.lower(v.Text), "spin") then
-                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
-                                    if btn and getconnections then
-                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                            -- 🎁 โฟกัสแค่กด Claim ให้ไวที่สุด
+                            for i = 1, 10 do -- สแปมกด Claim 10 ครั้งใน 2 วินาที
+                                for _, v in pairs(playerGui:GetDescendants()) do
+                                    if (v:IsA("TextButton") or v:IsA("TextLabel")) and string.lower(v.Text) == "claim" then
+                                        local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
+                                        if btn and btn.Visible and btn.Parent.Visible then
+                                            if getconnections then
+                                                for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                            end
+                                            btn.MouseButton1Click:Fire()
+                                        end
                                     end
                                 end
+                                task.wait(0.2)
                             end
                             
-                            task.wait(1.5)
+                            task.wait(1)
                             hrp.Anchored = false
                             IsDoingEvent = false
                         end
