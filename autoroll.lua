@@ -194,9 +194,13 @@ RollGroup:AddToggle("AutoRollToggle", {
                 while Config.AutoRoll do
                     if IsDoingEvent then 
                         UI_StatusLabel:SetText("สถานะ: 🏃‍♂️ วิ่งไปทำกิจกรรม/บอส (หยุด Roll)")
-                        task.wait(1) continue 
+                        task.wait(1) 
+                        continue 
                     end
-                    if WaitingForPriority then task.wait(0.5) continue end
+                    if WaitingForPriority then 
+                        task.wait(0.5) 
+                        continue 
+                    end
                     
                     UI_StatusLabel:SetText("สถานะ: กำลัง Roll...")
                     local myPlot = getMyPlot()
@@ -548,7 +552,22 @@ EventGroup:AddToggle("AutoCollectOrbToggle", { Text = "Auto Collect ลูกแ
 EventGroup:AddToggle("AutoMakeWishToggle", { Text = "Auto Make a wish (ขอพร)", Default = false, Callback = function(V) Config.AutoMakeWish = V end })
 EventGroup:AddDivider()
 EventGroup:AddToggle("AutoChallengeBossToggle", { Text = "เปิดออโต้กด Challenge Boss", Default = false, Callback = function(V) Config.AutoChallengeBoss = V end })
+EventGroup:AddDropdown("WishDropdown", { 
+    Text = "เลือกพรที่ต้องการขอ", 
+    Values = {"million dollars", "meteor rain", "skip the Cloning"}, 
+    Default = 1, 
+    Callback = function(V) 
+        Config.WishChoice = V 
+    end 
+})
 
+EventGroup:AddToggle("AutoMeteorToggle", { 
+    Text = "Auto ตามเก็บอุกกาบาต & สปิน", 
+    Default = false, 
+    Callback = function(V) 
+        Config.AutoMeteor = V 
+    end 
+})
 task.spawn(function()
     while true do
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -564,12 +583,104 @@ task.spawn(function()
                         local oName = string.lower(obj.Name or "")
                         if Config.AutoCollectOrb and (aText == "collect" or oName == "collect") then
                             IsDoingEvent = true
-                            hrp.CFrame = obj.Parent.CFrame * CFrame.new(0, 5, 0); firePrompt(obj); task.wait(1)
+                            -- 1. หยุดความเร็วตัวละครและวาร์ป (ลดความสูงลงมาเหลือ 2 เพื่อให้อยู่ในระยะกด)
+                            hrp.Velocity = Vector3.zero
+                            hrp.CFrame = obj.Parent.CFrame * CFrame.new(0, 2, 0)
+                            
+                            -- 2. จุดสำคัญ: ต้องเว้นระยะให้เซิร์ฟเวอร์โหลดตำแหน่งตัวละครใหม่ก่อนสั่งกด
+                            task.wait(0.3) 
+                            
+                            -- 3. สแปมกด E 3 ครั้งติดกัน เพื่อความชัวร์ 100%
+                            for i = 1, 3 do
+                                firePrompt(obj)
+                                task.wait(0.1)
+                        end
+    
+                            task.wait(1)
                             IsDoingEvent = false
                         end
+                        -- ==========================================
+                        -- 🐉 1. ระบบมังกร (Make a wish) + เลือกพรจาก Dropdown
+                        -- ==========================================
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish")) then
                             IsDoingEvent = true
-                            hrp.CFrame = obj.Parent.CFrame * CFrame.new(0, 5, 0); firePrompt(obj); task.wait(2)
+                            
+                            local promptCF
+                            if obj.Parent:IsA("Attachment") then promptCF = obj.Parent.WorldCFrame
+                            elseif obj.Parent:IsA("BasePart") then promptCF = obj.Parent.CFrame
+                            else promptCF = obj.Parent:GetPivot() end
+                            
+                            hrp.Velocity = Vector3.zero
+                            hrp.Anchored = true 
+                            hrp.CFrame = promptCF * CFrame.new(0, -2, 5)
+                            hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
+                            task.wait(0.5) 
+                            
+                            for i = 1, 4 do firePrompt(obj); task.wait(0.2) end
+                            task.wait(1.5) -- รอหน้า UI เด้ง
+                            
+                            -- กด "เลือกพร" (ฝั่งซ้าย) ตาม Dropdown ที่เราเลือกไว้ใน UI
+                            local targetWish = Config.WishChoice or "million dollars"
+                            for _, v in pairs(playerGui:GetDescendants()) do
+                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(string.lower(v.Text), targetWish) then
+                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
+                                    if btn and getconnections then
+                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                    end
+                                end
+                            end
+                            task.wait(0.5)
+                            
+                            -- กด "Make Wish" (ฝั่งขวา)
+                            for _, v in pairs(playerGui:GetDescendants()) do
+                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.lower(v.Text) == "make wish" then
+                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
+                                    if btn and getconnections then
+                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                    end
+                                end
+                            end
+                            
+                            task.wait(1)
+                            hrp.Anchored = false
+                            IsDoingEvent = false
+                        end
+
+                        -- ==========================================
+                        -- ☄️ 2. ระบบตามล่าอุกกาบาต (Meteor) + Auto Spin
+                        -- ==========================================
+                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor")) then
+                            IsDoingEvent = true
+                            
+                            local promptCF
+                            if obj.Parent:IsA("Attachment") then promptCF = obj.Parent.WorldCFrame
+                            elseif obj.Parent:IsA("BasePart") then promptCF = obj.Parent.CFrame
+                            else promptCF = obj.Parent:GetPivot() end
+                            
+                            -- วาร์ปไปจ่อหน้าอุกกาบาต
+                            hrp.Velocity = Vector3.zero
+                            hrp.Anchored = true
+                            hrp.CFrame = promptCF * CFrame.new(0, 3, 3) -- อาจต้องปรับระยะตามขนาดอุกกาบาต
+                            hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
+                            task.wait(0.5)
+                            
+                            -- สแปมกด E ใส่อุกกาบาต
+                            for i = 1, 4 do firePrompt(obj); task.wait(0.2) end
+                            
+                            task.wait(2) -- รอหน้าจอ UI Spin เด้งขึ้นมา
+                            
+                            -- ค้นหาและกดปุ่ม "Spin" ในหน้า UI
+                            for _, v in pairs(playerGui:GetDescendants()) do
+                                if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(string.lower(v.Text), "spin") then
+                                    local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
+                                    if btn and getconnections then
+                                        for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+                                    end
+                                end
+                            end
+                            
+                            task.wait(1.5)
+                            hrp.Anchored = false
                             IsDoingEvent = false
                         end
                     end
