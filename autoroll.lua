@@ -600,13 +600,13 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
                         -- ==========================================
-                        -- 🐉 1. ระบบมังกร (Make a wish) ฉบับนิ่งเสถียร
+                        -- 🐉 1. ระบบมังกร (Make a wish) ฉบับสมบูรณ์ (แก้บัค UI เลือกพร)
                         -- ==========================================
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish")) then
                             IsDoingEvent = true
                             
                             local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
-                                            (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
+                                             (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
                             
                             hrp.Velocity = Vector3.zero
                             hrp.Anchored = true 
@@ -614,38 +614,41 @@ task.spawn(function()
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
                             task.wait(0.5) 
                             
-                            -- 1. กดเปิดหน้าต่าง "แค่ครั้งเดียว" แล้วรอให้ UI ปรากฏจริงๆ
+                            -- 1. กดเปิดหน้าต่าง
                             firePrompt(obj)
                             
-                            -- รอสูงสุด 3 วินาที เพื่อให้มั่นใจว่าหน้า UI เด้งขึ้นมาแล้ว
-                            local uiFound = false
+                            -- รอหน้า UI โผล่มา
+                            local uiParent = nil
                             for i = 1, 15 do
                                 task.wait(0.2)
-                                -- เช็คว่า UI ของมังกรมีตัวตนอยู่จริงๆ หรือยัง
                                 for _, v in pairs(playerGui:GetDescendants()) do
-                                    if (v:IsA("TextLabel") or v:IsA("TextButton")) and string.find(v.Text, "Make Wish") then
-                                        uiFound = true break
+                                    -- หาหน้าต่างแม่ (Frame) โดยเช็คจากปุ่ม Make Wish
+                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "make wish") then
+                                        uiParent = v:FindFirstAncestorOfClass("Frame")
+                                        if uiParent then break end
                                     end
                                 end
-                                if uiFound then break end
+                                if uiParent then break end
                             end
                             
-                            if uiFound then
-                                -- 2. เลือกพร (ฝั่งซ้าย)
-                                local targetWish = Config.WishChoice or "million dollars"
-                                for _, v in pairs(playerGui:GetDescendants()) do
-                                    if (v:IsA("TextButton")) and string.find(string.lower(v.Text), string.lower(targetWish)) then
-                                        -- ลองยิง Event ไปที่ปุ่ม
-                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                        task.wait(0.3)
+                            if uiParent then
+                                -- 2. เลือกพร (ฝั่งซ้าย) - ค้นหาภายใน UI แม่เท่านั้น
+                                local targetWish = string.lower(Config.WishChoice or "million dollars")
+                                for _, btn in pairs(uiParent:GetDescendants()) do
+                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), targetWish) then
+                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
+                                        btn.MouseButton1Click:Fire()
+                                        task.wait(0.5)
+                                        break
                                     end
                                 end
                                 
-                                -- 3. กด Make Wish (ฝั่งขวา)
-                                for _, v in pairs(playerGui:GetDescendants()) do
-                                    if v:IsA("TextButton") and string.lower(v.Text) == "make wish" then
-                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                        break -- กดอันเดียวพอ
+                                -- 3. กด Make Wish (ฝั่งขวา) - กดปุ่มใน UI แม่เท่านั้น
+                                for _, btn in pairs(uiParent:GetDescendants()) do
+                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), "make wish") then
+                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
+                                        btn.MouseButton1Click:Fire()
+                                        break 
                                     end
                                 end
                             end
