@@ -659,25 +659,28 @@ task.spawn(function()
                         -- ☄️ 2. ระบบตามล่าอุกกาบาต + Auto Claim (เวอร์ชันเน้น Claim จบไว)
                         -- ==========================================
                         if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
-                            IsDoingEvent = true
-                            
+                           IsDoingEvent = true
+
+                            -- 1. หาตำแหน่งปุ่มให้แม่นยำที่สุด
                             local promptCF
                             if obj.Parent:IsA("Attachment") then promptCF = obj.Parent.WorldCFrame
                             elseif obj.Parent:IsA("BasePart") then promptCF = obj.Parent.CFrame
                             else promptCF = obj.Parent:GetPivot() end
-                            
-                            -- วาร์ปไปจ่อหน้าอุกกาบาต
+
+                            -- 2. วาร์ปไปที่ตำแหน่งปุ่มบนพื้น
+                            -- ปรับค่า Y ให้เป็น 0 (หรือค่าที่ใกล้พื้นที่สุด) เพื่อให้ตัวละครไม่ลอย
                             hrp.Velocity = Vector3.zero
-                            hrp.Anchored = true
-                            hrp.CFrame = promptCF * CFrame.new(0, -2, 8) 
+                            hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 0)) * CFrame.new(0, 0, 3) 
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
-                            task.wait(0.5)
-                            
-                            -- สแปมกด E เพื่อเก็บอุกกาบาต
-                            for i = 1, 4 do firePrompt(obj); task.wait(0.2) end
-                            
-                            -- รอให้ระบบสุ่มเด้ง (ปรับเวลาตามจริง)
-                            task.wait(1.5) 
+
+                            -- 3. แทนที่จะ Anchor ให้เราสั่ง "กด" ทันทีในขณะที่ขากำลังแตะพื้น
+                            task.wait(0.3) 
+                            for i = 1, 4 do 
+                                firePrompt(obj) 
+                                task.wait(0.2) 
+                            end
+
+                            task.wait(1.5)
                             
                             -- 🎁 โฟกัสแค่กด Claim ให้ไวที่สุด
                             for i = 1, 10 do -- สแปมกด Claim 10 ครั้งใน 2 วินาที
