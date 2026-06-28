@@ -659,30 +659,28 @@ task.spawn(function()
                         -- ☄️ 2. ระบบตามล่าอุกกาบาต + Auto Claim (เวอร์ชันเน้น Claim จบไว)
                         -- ==========================================
                         if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
-                           IsDoingEvent = true
-                            local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
-                            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+                        IsDoingEvent = true -- ล็อคไม่ให้ Auto Roll ทำงาน
+                        
+                        local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
+                        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 
-                            if hrp and hum then
-                                -- 1. วาร์ปห่างออกมาเล็กน้อย เพื่อไม่ให้ทับกับ Hitbox จนเกมดีดตัวละคร
-                                hrp.Velocity = Vector3.zero
-                                hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
-                                
-                                -- 2. 🛡️ รีเซ็ตสถานะการตก: เปลี่ยนให้ตัวละครเป็น "ยืน"
-                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                                hum.Jump = true -- สั่งกระโดดเพื่อรีเซ็ตสถานะ Falling (แก้แขนชี้ฟ้า)
-                                task.wait(0.4)
-                                
-                                -- 3. สั่งกดเก็บ
-                                for i = 1, 5 do 
-                                    firePrompt(obj) 
-                                    task.wait(0.3) 
-                                end
-                            end
-                            IsDoingEvent = false
+                        if hrp and hum then
+                            -- 1. วาร์ปห่างออกมาเล็กน้อย และรีเซ็ตสถานะยืน
+                            hrp.Velocity = Vector3.zero
+                            hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
                             
-                            -- 🎁 โฟกัสแค่กด Claim ให้ไวที่สุด
-                            for i = 1, 10 do -- สแปมกด Claim 10 ครั้งใน 2 วินาที
+                            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                            hum.Jump = true 
+                            task.wait(0.4)
+                            
+                            -- 2. สั่งกดเก็บ (กดรัวๆ เพื่อความชัวร์)
+                            for i = 1, 5 do 
+                                firePrompt(obj) 
+                                task.wait(0.3) 
+                            end
+                            
+                            -- 3. เฝ้ากด Claim ให้ไวที่สุด (วนลูปเฝ้าหน้าจอ)
+                            for i = 1, 10 do 
                                 for _, v in pairs(playerGui:GetDescendants()) do
                                     if (v:IsA("TextButton") or v:IsA("TextLabel")) and string.lower(v.Text) == "claim" then
                                         local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
@@ -696,11 +694,12 @@ task.spawn(function()
                                 end
                                 task.wait(0.2)
                             end
-                            
-                            task.wait(1)
-                            hrp.Anchored = false
-                            IsDoingEvent = false
                         end
+                        
+                        -- 4. ปลดล็อคทุกอย่างเมื่อเสร็จสิ้นภารกิจ
+                        hrp.Anchored = false
+                        IsDoingEvent = false 
+                    end
                     end
                 end
             end)
