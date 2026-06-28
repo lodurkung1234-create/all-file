@@ -660,27 +660,26 @@ task.spawn(function()
                         -- ==========================================
                         if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
                            IsDoingEvent = true
+                            local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
+                            local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 
-                            -- 1. หาตำแหน่งปุ่มให้แม่นยำที่สุด
-                            local promptCF
-                            if obj.Parent:IsA("Attachment") then promptCF = obj.Parent.WorldCFrame
-                            elseif obj.Parent:IsA("BasePart") then promptCF = obj.Parent.CFrame
-                            else promptCF = obj.Parent:GetPivot() end
-
-                            -- 2. วาร์ปไปที่ตำแหน่งปุ่มบนพื้น
-                            -- ปรับค่า Y ให้เป็น 0 (หรือค่าที่ใกล้พื้นที่สุด) เพื่อให้ตัวละครไม่ลอย
-                            hrp.Velocity = Vector3.zero
-                            hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 0)) * CFrame.new(0, 0, 3) 
-                            hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
-
-                            -- 3. แทนที่จะ Anchor ให้เราสั่ง "กด" ทันทีในขณะที่ขากำลังแตะพื้น
-                            task.wait(0.3) 
-                            for i = 1, 4 do 
-                                firePrompt(obj) 
-                                task.wait(0.2) 
+                            if hrp and hum then
+                                -- 1. วาร์ปห่างออกมาเล็กน้อย เพื่อไม่ให้ทับกับ Hitbox จนเกมดีดตัวละคร
+                                hrp.Velocity = Vector3.zero
+                                hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
+                                
+                                -- 2. 🛡️ รีเซ็ตสถานะการตก: เปลี่ยนให้ตัวละครเป็น "ยืน"
+                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                                hum.Jump = true -- สั่งกระโดดเพื่อรีเซ็ตสถานะ Falling (แก้แขนชี้ฟ้า)
+                                task.wait(0.4)
+                                
+                                -- 3. สั่งกดเก็บ
+                                for i = 1, 5 do 
+                                    firePrompt(obj) 
+                                    task.wait(0.3) 
+                                end
                             end
-
-                            task.wait(1.5)
+                            IsDoingEvent = false
                             
                             -- 🎁 โฟกัสแค่กด Claim ให้ไวที่สุด
                             for i = 1, 10 do -- สแปมกด Claim 10 ครั้งใน 2 วินาที
