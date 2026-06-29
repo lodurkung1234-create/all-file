@@ -568,151 +568,98 @@ EventGroup:AddToggle("AutoMeteorToggle", {
         Config.AutoMeteor = V 
     end 
 })
+
+-- 🚀 ลูป Event แบบรวมศูนย์ (แก้บัคโครงสร้างแล้ว)
 task.spawn(function()
     while true do
+        task.wait(0.5)
         local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
         local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
-        local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-
-        -- 1. ลูปเก็บลูกแก้ว & ขอพร
-        if (Config.AutoCollectOrb or Config.AutoMakeWish) and hrp and hum then
+        local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+        
+        -- ==========================================
+        -- 1. ระบบ Collect Orb, Make Wish, Meteor (สแกน Prompt)
+        -- ==========================================
+        if (Config.AutoCollectOrb or Config.AutoMakeWish or Config.AutoMeteor) and hrp and hum then
             pcall(function()
                 for _, obj in pairs(workspace:GetDescendants()) do
                     if obj:IsA("ProximityPrompt") then
                         local aText = string.lower(obj.ActionText or "")
                         local oName = string.lower(obj.Name or "")
+                        
+                        -- 🟢 Collect Orb
                         if Config.AutoCollectOrb and (aText == "collect" or oName == "collect") then
                             IsDoingEvent = true
-                            -- 1. หยุดความเร็วตัวละครและวาร์ป (ลดความสูงลงมาเหลือ 2 เพื่อให้อยู่ในระยะกด)
                             hrp.Velocity = Vector3.zero
-                            hrp.CFrame = obj.Parent.CFrame * CFrame.new(0, 2, 0)
-                            
-                            -- 2. จุดสำคัญ: ต้องเว้นระยะให้เซิร์ฟเวอร์โหลดตำแหน่งตัวละครใหม่ก่อนสั่งกด
-                            task.wait(0.3) 
-                            
-                            -- 3. สแปมกด E 3 ครั้งติดกัน เพื่อความชัวร์ 100%
-                            for i = 1, 3 do
-                                firePrompt(obj)
-                                task.wait(0.1)
-                        end
-    
+                            hrp.CFrame = obj.Parent:GetPivot() * CFrame.new(0, 2, 0)
+                            task.wait(0.3)
+                            for i = 1, 3 do firePrompt(obj); task.wait(0.1) end
                             task.wait(1)
                             IsDoingEvent = false
                         end
-                        -- ==========================================
-                        -- 🐉 1. ระบบมังกร (Make a wish) ฉบับสมบูรณ์ (แก้บัค UI เลือกพร)
-                        -- ==========================================
+
+                        -- 🐉 Make a Wish
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish")) then
                             IsDoingEvent = true
-                            
-                            local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
-                                             (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
-                            
+                            local promptCF = obj.Parent:GetPivot()
                             hrp.Velocity = Vector3.zero
                             hrp.Anchored = true 
                             hrp.CFrame = promptCF * CFrame.new(0, -2, 5)
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
-                            task.wait(0.5) 
-                            
-                            -- 1. กดเปิดหน้าต่าง
+                            task.wait(0.5)
                             firePrompt(obj)
+                            task.wait(1.5)
                             
-                            -- รอหน้า UI โผล่มา
-                            local uiParent = nil
-                            for i = 1, 15 do
-                                task.wait(0.2)
-                                for _, v in pairs(playerGui:GetDescendants()) do
-                                    -- หาหน้าต่างแม่ (Frame) โดยเช็คจากปุ่ม Make Wish
-                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "make wish") then
-                                        uiParent = v:FindFirstAncestorOfClass("Frame")
-                                        if uiParent then break end
-                                    end
-                                end
-                                if uiParent then break end
-                            end
-                            
-                            if uiParent then
-                                -- 2. เลือกพร (ฝั่งซ้าย) - ค้นหาภายใน UI แม่เท่านั้น
-                                local targetWish = string.lower(Config.WishChoice or "million dollars")
-                                for _, btn in pairs(uiParent:GetDescendants()) do
-                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), targetWish) then
-                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
-                                        btn.MouseButton1Click:Fire()
-                                        task.wait(0.5)
-                                        break
-                                    end
-                                end
-                                
-                                -- 3. กด Make Wish (ฝั่งขวา) - กดปุ่มใน UI แม่เท่านั้น
-                                for _, btn in pairs(uiParent:GetDescendants()) do
-                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), "make wish") then
-                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
-                                        btn.MouseButton1Click:Fire()
-                                        break 
+                            local targetWish = string.lower(Config.WishChoice or "million")
+                            for _, v in pairs(playerGui:GetDescendants()) do
+                                if v:IsA("TextButton") then
+                                    local txt = string.lower(v.Text)
+                                    if string.find(txt, targetWish) or string.find(txt, "make wish") then
+                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                        v.MouseButton1Click:Fire()
+                                        task.wait(0.3)
                                     end
                                 end
                             end
-                            
-                            task.wait(1)
                             hrp.Anchored = false
                             IsDoingEvent = false
                         end
 
-                        -- ==========================================
-                        -- ☄️ 2. ระบบตามล่าอุกกาบาต + Auto Claim (เวอร์ชันเน้น Claim จบไว)
-                        -- ==========================================
+                        -- ☄️ Meteor & Auto Claim
                         if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
-                        IsDoingEvent = true -- ล็อคไม่ให้ Auto Roll ทำงาน
-                        
-                        local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
-                        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-
-                        if hrp and hum then
-                            -- 1. วาร์ปห่างออกมาเล็กน้อย และรีเซ็ตสถานะยืน
+                            IsDoingEvent = true
+                            local promptCF = obj.Parent:GetPivot()
                             hrp.Velocity = Vector3.zero
                             hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
-                            
                             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
                             hum.Jump = true 
                             task.wait(0.4)
                             
-                            -- 2. สั่งกดเก็บ (กดรัวๆ เพื่อความชัวร์)
-                            for i = 1, 5 do 
-                                firePrompt(obj) 
-                                task.wait(0.3) 
-                            end
+                            for i = 1, 5 do firePrompt(obj); task.wait(0.3) end
                             
-                            -- 3. เฝ้ากด Claim ให้ไวที่สุด (วนลูปเฝ้าหน้าจอ)
                             for i = 1, 10 do 
                                 for _, v in pairs(playerGui:GetDescendants()) do
-                                    if (v:IsA("TextButton") or v:IsA("TextLabel")) and string.lower(v.Text) == "claim" then
-                                        local btn = v:IsA("TextButton") and v or v:FindFirstAncestorOfClass("TextButton")
-                                        if btn and btn.Visible and btn.Parent.Visible then
-                                            if getconnections then
-                                                for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
-                                            end
-                                            btn.MouseButton1Click:Fire()
-                                        end
+                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") then
+                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                        v.MouseButton1Click:Fire()
                                     end
                                 end
                                 task.wait(0.2)
                             end
+                            IsDoingEvent = false
                         end
-                        
-                        -- 4. ปลดล็อคทุกอย่างเมื่อเสร็จสิ้นภารกิจ
-                        hrp.Anchored = false
-                        IsDoingEvent = false 
-                    end
                     end
                 end
             end)
         end
 
+        -- ==========================================
         -- 2. ลูปทำเควส Buhara
+        -- ==========================================
         if Config.AutoBuharaEvent and hrp and hum then
             pcall(function()
                 local mutationStuffs = workspace:FindFirstChild("MutationStuffs")
-                local getData = ReplicatedStorage:FindFirstChild("BuharaEventGetData", true)
+                local getData = game:GetService("ReplicatedStorage"):FindFirstChild("BuharaEventGetData", true)
                 if mutationStuffs and getData then
                     local hasFood = false
                     for _, v in pairs(mutationStuffs:GetChildren()) do if v.Name == "FoodPickupItem" then hasFood = true break end end
@@ -751,27 +698,22 @@ task.spawn(function()
             end)
         end
 
-        -- 3. ลูป Challenge Boss (ดักจับป้าย -> วาร์ปไปรอ -> EndWave -> สแปมกด)
+        -- ==========================================
+        -- 3. ลูป Challenge Boss
+        -- ==========================================
         if Config.AutoChallengeBoss and hrp then
             pcall(function()
-                local foundBossSign = false -- ตัวแปรเช็คว่าหาป้ายเจอไหม
-                
+                local foundBossSign = false
                 for _, obj in pairs(workspace:GetDescendants()) do
                     if obj:IsA("TextLabel") then
                         local textLower = string.lower(obj.Text)
                         
-                        -- ⏳ โหมดที่ 1: ติดคูลดาวน์ (ดึงเวลามาโชว์ที่ UI บอส)
                         if string.find(textLower, "challenge in:") then
                             foundBossSign = true
                             local timeLeft = string.match(obj.Text, "%d+:%d+:%d+") or "กำลังคำนวณ..."
                             UI_BossStatus:SetText("สถานะบอส: ⏳ รอเวลาเปิด (" .. timeLeft .. ")")
+                            if not string.find(UI_BossStatus.Text, "เข้าประตู") then IsDoingEvent = false end
                             
-                            -- ไม่ล็อค event เพื่อให้ฟาร์ม Wave ต่อได้
-                            if not string.find(UI_BossStatus.Text, "เข้าประตู") then
-                                IsDoingEvent = false 
-                            end
-                            
-                        -- 🚀 โหมดที่ 2: ถึงเวลาบอสเปิด (บุกทันที)
                         elseif string.find(textLower, "challenge now!") then
                             foundBossSign = true
                             IsDoingEvent = true
@@ -781,43 +723,32 @@ task.spawn(function()
                             local prompt = doorModel and doorModel:FindFirstChildWhichIsA("ProximityPrompt", true)
                             
                             if prompt then
-                                -- 1. วาร์ปไปจ่อประตู
                                 hrp.Velocity = Vector3.zero
                                 hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
                                 task.wait(0.2)
                                 
-                                -- 2. สั่งจบ Wave
-                                if Remotes and Remotes.Start:FindFirstChild("EndWave") then 
+                                if Remotes and Remotes:FindFirstChild("Start") and Remotes.Start:FindFirstChild("EndWave") then 
                                     Remotes.Start.EndWave:FireServer() 
                                 end
                                 
-                                -- 3. สแปมกดรัวๆ แย่งจังหวะ
                                 UI_BossStatus:SetText("สถานะบอส: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
-                                for i = 1, 20 do
-                                    firePrompt(prompt)
-                                    task.wait(0.05) 
-                                end
-                                
+                                for i = 1, 20 do firePrompt(prompt); task.wait(0.05) end
                                 UI_BossStatus:SetText("สถานะบอส: ✅ เข้าประตู Challenge แล้ว!")
-                                task.wait(5) -- พักกันลูปวนซ้ำ
+                                task.wait(5)
                             end
                         end
                     end
                 end
                 
-                -- ถ้าเปิดสวิตช์ไว้ แต่ยังหาป้ายไม่เจอ (เช่น อยู่ไกลไป)
-                if not foundBossSign then
-                    UI_BossStatus:SetText("สถานะบอส: 🔍 กำลังค้นหาประตูบอส...")
-                end
+                if not foundBossSign then UI_BossStatus:SetText("สถานะบอส: 🔍 กำลังค้นหาประตูบอส...") end
             end)
         else
-            -- ถ้าปิดสวิตช์ Auto Challenge Boss ให้ขึ้นว่าปิดการทำงาน
             UI_BossStatus:SetText("สถานะบอส: 🔴 ปิดการทำงาน")
         end
 
         task.wait(1)
     end
-end)
+end) -- สิ้นสุดลูป Event & Boss ทั้งหมดตรงนี้อย่างถูกต้อง
 
 
 -- ==========================================
