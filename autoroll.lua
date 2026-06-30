@@ -68,7 +68,7 @@ local Config = {
     WebhookURL = "", WebhookEnabled = false,
     -- Event Configs
     AutoBuharaEvent = false, AutoCollectOrb = false, AutoMakeWish = false, AutoChallengeBoss = false, AutoStartWave = false,
-    AutoMeteor = false, -- เปลี่ยนชื่อตัวแปรภายในให้สอดคล้องกับระบบอุกกาบาต
+    AutoMeteor = false,
     WishChoice = "MillionDollars"
 }
 local BuyList = {}
@@ -136,6 +136,23 @@ task.spawn(function()
     local pg = player:WaitForChild("PlayerGui")
     for _, obj in pairs(pg:GetDescendants()) do checkAndSilence(obj) end
     pg.DescendantAdded:Connect(checkAndSilence)
+end)
+
+-- ⭐ แก้บัคข้อที่ 2: ระบบจัดการแกล้งสับเปลี่ยนพาร์ทอนิเมชัน Boros ในกระเป๋า (ป้องกัน Infinite Yield ค้างที่ Torso)
+task.spawn(function()
+    local function fixAnimateScript(tool)
+        if tool:IsA("Tool") and tool:FindFirstChild("Animate") then
+            local animateScript = tool.Animate
+            -- สแกนเปลี่ยนเป้าหมายภายในตัวสคริปต์ของกระเป๋าให้รองรับโครงสร้าง R15 ทันที
+            for _, child in pairs(animateScript:GetDescendants()) do
+                if child:IsA("StringValue") and child.Value == "Torso" then
+                    child.Value = "UpperTorso"
+                end
+            end
+        end
+    end
+    player.Backpack.ChildAdded:Connect(fixAnimateScript)
+    for _, item in pairs(player.Backpack:GetChildren()) do fixAnimateScript(item) end
 end)
 
 -- ==========================================
@@ -251,7 +268,6 @@ RollGroup:AddSlider("RollDelay", { Text = "ความเร็ว Roll", Defau
 RollGroup:AddDivider()
 RollGroup:AddToggle("GodPriorityToggle", { Text = "God Priority (ระดับสูงสุด!)", Default = false, Callback = function(V) Config.GodPriority = V if not V and CurrentPriorityLevel == 2 then WaitingForPriority = false CurrentPriorityLevel = 0 end end })
 RollGroup:AddToggle("SecretPriorityToggle", { Text = "Secret Priority (รอซื้อ Secret)", Default = false, Callback = function(V) Config.SecretPriority = V if not V and CurrentPriorityLevel == 1 then WaitingForPriority = false CurrentPriorityLevel = 0 end end })
-RollGroup:AddLabel("เลือก Mutation สำหรับ Secret Priority:")
 RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar", Default = false, Callback = function(V) Config.MutArrancar = V end })
 RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast", Default = false, Callback = function(V) Config.MutBeast = V end })
 RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn", Default = false, Callback = function(V) Config.MutDragonborn = V end })
@@ -572,7 +588,6 @@ EventGroup:AddDropdown("WishDropdown", {
     end 
 })
 
--- ⭐ ปรับปรุงการผูกชื่อปุ่ม Toggle ให้ตรงกับรูปภาพ UI ของคุณ (image_4970d3.png)
 EventGroup:AddToggle("AutoMeteorToggle", { 
     Text = "Auto ตามเก็บอุกกาบาต & สปิน", 
     Default = false, 
@@ -581,7 +596,7 @@ EventGroup:AddToggle("AutoMeteorToggle", {
     end 
 })
 
--- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันแก้ไขการดักจับข้อความแฝง VIP Chest)
+-- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันเสถียรสูงสุด - แก้บัควาร์ป VIP Chest)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -596,7 +611,7 @@ task.spawn(function()
                         local aText = string.lower(obj.ActionText or "")
                         local oName = string.lower(obj.Name or "")
                         
-                        -- คำนวณตำแหน่ง CFrame ของวัตถุให้ถูกต้อง
+                        -- คำนวณตำแหน่ง CFrame ของวัตถุ
                         local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
                                          (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
                         
@@ -625,18 +640,17 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันตรวจเช็คสูงสุด สลัดบัคกล่อง VIP Chest ทิ้ง 100%)
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (⭐ แก้ไขจุดกรอง VIP Chest ห้ามวาร์ปเอ๋อ)
                         if Config.AutoMeteor then
                             local modelName = obj.Parent and obj.Parent.Name or ""
                             local parentNameLower = string.lower(modelName)
                             
-                            -- ⭐ เงื่อนไขหัวใจสำคัญ: คัดกรองคัตเอาท์โมเดลกล่องรับของสิทธิ์ VIP ออกจากการคำนวณทั้งหมดเพื่อป้องกันการวาร์ปค้างค่าย
+                            -- ดักจับสิ่งกีดขวางจำพวกกล่องสิทธิ์ VIP เพื่อตัดออกจากลูปการทำงาน
                             if string.find(parentNameLower, "vip") or string.find(parentNameLower, "chest") or string.find(parentNameLower, "daily") or string.find(oName, "vip") then
-                                -- สั่งข้ามผ่านทันที ห้ามหันตัวแปรไปแตะเด็ดขาด!
+                                -- ข้ามวัตถุชิ้นนี้ทันที
                             else
-                                -- ตรวจสอบคุณสมบัติเมื่อตรงตามสเปกหินอุกกาบาตของจริง
                                 if string.find(aText, "meteor") or string.find(oName, "meteor") or 
-                                   (string.find(aText, "claim") and not string.find(aText, "daily")) or -- เจาะจงเฉพาะปุ่ม claim ที่ไม่มีคำว่า daily แฝงอยู่
+                                   (string.find(aText, "claim") and not string.find(aText, "daily")) or -- คัดเอาปุ่ม claim ที่ไม่เกี่ยวกับ daily
                                    modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
                                     
                                     IsDoingEvent = true
