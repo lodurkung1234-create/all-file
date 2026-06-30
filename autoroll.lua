@@ -59,7 +59,7 @@ local UI_WebhookLog = WebhookLogGroup:AddLabel("ยังไม่มีกา�
 ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้งหมด", Values = {"(ไม่มีรายการ)"}, Default = 1, Callback = function() end })
 
 -- ==========================================
--- ⚙️ ค่าเริ่มต้นระบบต่างๆ
+-- ⚙️ ค่าเริ่มต้นระบบต่างๆ และดึง DataService (ย้ายมาดักเพื่อ Global Scope)
 -- ==========================================
 local Config = { 
     AutoRoll = false, RollDelay = 1, MasterAutoBuy = false, 
@@ -67,7 +67,8 @@ local Config = {
     GodPriority = false, SecretPriority = false, MutDragonborn = false, MutBeast = false, MutArrancar = false,
     WebhookURL = "", WebhookEnabled = false,
     -- Event Configs
-    AutoBuharaEvent = false, AutoCollectOrb = false, AutoMakeWish = false, AutoChallengeBoss = false, AutoStartWave = false
+    AutoBuharaEvent = false, AutoCollectOrb = false, AutoMakeWish = false, AutoChallengeBoss = false, AutoStartWave = false,
+    WishChoice = "MillionDollars"
 }
 local BuyList = {}
 local TempName, TempRarity, TempMut = "Any", "Any", "Any"
@@ -76,6 +77,12 @@ local SelectedDeleteIndex = 1
 local WaitingForPriority, IsDoingEvent = false, false 
 local CurrentPriorityLevel, CurrentPriorityUnit = 0, nil
 local PriorityTargetName = ""
+
+-- ดึงตัวแปร client ออกมาให้เรียกใช้ได้เสถียรในทุกลูป
+local client = nil
+pcall(function()
+    client = require(ReplicatedStorage:WaitForChild("Data"):WaitForChild("DataService")).client
+end)
 
 -- ==========================================
 -- 🛡️ Anti-AFK & ระบบสกัดกั้นข้อความ V4
@@ -250,15 +257,14 @@ RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn", Default
 
 -- 🛡️ Auto Start Wave System (เวอร์ชันแก้บัค 100%)
 task.spawn(function()
-    local checkStuck = 0 -- ตัวนับเวลาแก้บัคค้าง
+    local checkStuck = 0 
     
     while true do
         task.wait(2)
         
-        -- 1. ป้องกันบอทค้างสถานะ IsDoingEvent ตลอดกาล
         if IsDoingEvent then
             checkStuck = checkStuck + 1
-            if checkStuck > 15 then -- ถ้าค้างข้อความเดิมนานเกิน 30 วินาที ให้ปลดล็อคบังคับลุยต่อ
+            if checkStuck > 15 then 
                 IsDoingEvent = false
                 checkStuck = 0
                 UI_StatusLabel:SetText("สถานะ: 🔄 ปลดล็อคสถานะค้าง!")
@@ -267,7 +273,6 @@ task.spawn(function()
             checkStuck = 0
         end
 
-        -- 2. ระบบ Auto Start โดยการมองหาปุ่มบนจอ
         if Config.AutoStartWave and not IsDoingEvent and not WaitingForPriority then
             pcall(function()
                 local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
@@ -276,11 +281,9 @@ task.spawn(function()
                     local canStart = false
                     local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
                     
-                    -- ค้นหาปุ่ม "Start" (ปุ่มสีเขียวๆ ด้านบนจอของคุณ)
                     if playerGui then
                         for _, v in pairs(playerGui:GetDescendants()) do
                             if (v:IsA("TextLabel") or v:IsA("TextButton")) and v.Text == "Start" then
-                                -- ถ้าปุ่มโชว์อยู่บนหน้าจอจริงๆ
                                 if v.Visible and v.Parent.Visible then
                                     canStart = true
                                     break
@@ -289,12 +292,10 @@ task.spawn(function()
                         end
                     end
                     
-                    -- ถ้าเจอปุ่ม Start บนจอ ให้สั่งรันเลย
                     if canStart then
                         Remotes.Start.StartWave:FireServer()
                         UI_StatusLabel:SetText("สถานะ: 🚀 Auto Start สั่งเริ่ม Wave!")
                     end
-                    
                 end
             end)
         end
@@ -554,8 +555,17 @@ EventGroup:AddDivider()
 EventGroup:AddToggle("AutoChallengeBossToggle", { Text = "เปิดออโต้กด Challenge Boss", Default = false, Callback = function(V) Config.AutoChallengeBoss = V end })
 EventGroup:AddDropdown("WishDropdown", { 
     Text = "เลือกพรที่ต้องการขอ", 
-    Values = {"million dollars", "meteor rain", "skip the Cloning"}, 
-    Default = 1, 
+    Values = {
+        "CashBoost", 
+        "LuckBoost", 
+        "ManyFragments", 
+        "MeteorRain", 
+        "MillionDollars", 
+        "SkipCloningMachine", 
+        "SkipCraftingMachine", 
+        "UniqueTrait"
+    }, 
+    Default = 5, 
     Callback = function(V) 
         Config.WishChoice = V 
     end 
@@ -599,82 +609,52 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- 🐉 2. ระบบมังกร (Make a wish) ฉบับบังคับกดเข้าหน้าต่างแม่
+                        -- 🐉 2. ระบบมังกร (Make a wish) เวอร์ชันยิง Remote ข้ามมิติ (ไม่ต้องง้อ UI และปุ่ม)
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish") or string.find(aText, "wish")) then
                             IsDoingEvent = true
-                            hrp.Velocity = Vector3.zero
-                            hrp.Anchored = true 
-                            hrp.CFrame = promptCF * CFrame.new(0, -2, 5)
-                            hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
-                            task.wait(0.5)
-                            
-                            -- เปิดหน้าต่าง
-                            firePrompt(obj)
-                            
-                            -- ค้นหากรอบหน้าต่างหลัก (uiParent) เพื่อความแม่นยำ
-                            local uiParent = nil
-                            for i = 1, 15 do
-                                task.wait(0.2)
-                                for _, v in pairs(playerGui:GetDescendants()) do
-                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "make wish") then
-                                        uiParent = v:FindFirstAncestorOfClass("Frame")
-                                        if uiParent then break end
-                                    end
+                            pcall(function()
+                                if Remotes and Remotes:FindFirstChild("SuperShenronEvent") and Remotes.SuperShenronEvent:FindFirstChild("ClaimWish") then
+                                    local targetWish = Config.WishChoice or "MillionDollars"
+                                    Remotes.SuperShenronEvent.ClaimWish:FireServer(targetWish)
+                                    UI_StatusLabel:SetText("สถานะ: 🐉 ยิง Remote ขอพร [" .. targetWish .. "] สำเร็จ!")
+                                    task.wait(0.5)
                                 end
-                                if uiParent then break end
-                            end
-                            
-                            if uiParent then
-                                -- เลือกพรฝั่งซ้าย
-                                local targetWish = string.lower(Config.WishChoice or "million")
-                                for _, btn in pairs(uiParent:GetDescendants()) do
-                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), targetWish) then
-                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
-                                        btn.MouseButton1Click:Fire()
-                                        task.wait(0.5)
-                                        break
-                                    end
-                                end
-                                
-                                -- กด Make Wish ยืนยันฝั่งขวา
-                                for _, btn in pairs(uiParent:GetDescendants()) do
-                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), "make wish") then
-                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
-                                        btn.MouseButton1Click:Fire()
-                                        break 
-                                    end
-                                end
-                            end
-                            
-                            hrp.Anchored = false
+                            end)
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ 3. ระบบ Meteor & Auto Claim (แก้ปัญหาตัวลอยแขนชี้ฟ้า + เคลียร์ Stack ของดร็อป)
-                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or string.find(aText, "claim")) then
-                            IsDoingEvent = true
-                            
-                            -- วาร์ปเว้นระยะและปรับสถานะให้เท้าแตะพื้นยืนตรงก่อนกด
-                            hrp.Velocity = Vector3.zero
-                            hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
-                            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                            hum.Jump = true 
-                            task.wait(0.4)
-                            
-                            -- กดรับอุกกาบาต
-                            for i = 1, 5 do firePrompt(obj); task.wait(0.3) end
-                            
-                            -- วนลูปสแกนหน้าจอเพื่อเคลียร์ปุ่ม Claim ทันที
-                            for i = 1, 10 do 
-                                for _, v in pairs(playerGui:GetDescendants()) do
-                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") then
-                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                        v.MouseButton1Click:Fire()
-                                    end
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันตรวจจับเกรดอุกกาบาตแม่นยำสูง)
+                        if Config.AutoMeteor then
+                            local modelName = obj.Parent and obj.Parent.Name or ""
+                            if string.find(aText, "meteor") or string.find(oName, "meteor") or string.find(aText, "claim") or 
+                               modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
+                                
+                                IsDoingEvent = true
+                                hrp.Velocity = Vector3.zero
+                                hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 1, 3))
+                                
+                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                                hum.Jump = true 
+                                task.wait(0.3)
+                                
+                                UI_StatusLabel:SetText("สถานะ: ☄️ พบอุกกาบาตเกรด [" .. modelName .. "] กำลังเก็บของรางวัล...")
+                                
+                                for i = 1, 5 do 
+                                    firePrompt(obj) 
+                                    task.wait(0.2) 
                                 end
-                                task.wait(0.2)
+                                
+                                for i = 1, 12 do 
+                                    for _, v in pairs(playerGui:GetDescendants()) do
+                                        if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") then
+                                            if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                            v.MouseButton1Click:Fire()
+                                        end
+                                    end
+                                    task.wait(0.2)
+                                end
+                                IsDoingEvent = false
                             end
-                            IsDoingEvent = false
                         end
                     end
                 end
@@ -727,48 +707,64 @@ task.spawn(function()
         end
 
         -- ==========================================
-        -- 3. ลูป Challenge Boss
+        -- 3. ลูป Challenge Boss (เวอร์ชันเชื่อมระบบ RestockGUI เจาะจงป้ายบอส 100%)
         -- ==========================================
         if Config.AutoChallengeBoss and hrp then
             pcall(function()
-                local foundBossSign = false
                 for _, obj in pairs(workspace:GetDescendants()) do
-                    if obj:IsA("TextLabel") then
-                        local textLower = string.lower(obj.Text)
+                    if obj:IsA("ProximityPrompt") and obj.Name == "ProximityPrompt" and obj.Parent and obj.Parent.Name == "Door" then
+                        local restockGUI = obj.Parent.Parent:FindFirstChild("RestockGUI")
+                        local timerLabel = restockGUI and restockGUI:FindFirstChild("TimerLabel")
                         
-                        if string.find(textLower, "challenge in:") then
-                            foundBossSign = true
-                            local timeLeft = string.match(obj.Text, "%d+:%d+:%d+") or "กำลังคำนวณ..."
-                            UI_BossStatus:SetText("สถานะบอส: ⏳ รอเวลาเปิด (" .. timeLeft .. ")")
-                            if not string.find(UI_BossStatus.Text, "เข้าประตู") then IsDoingEvent = false end
+                        if timerLabel then
+                            local textLower = string.lower(timerLabel.Text)
                             
-                        elseif string.find(textLower, "challenge now!") then
-                            foundBossSign = true
-                            IsDoingEvent = true
-                            UI_BossStatus:SetText("สถานะบอส: ⚔️ บอสเปิดแล้ว! ทิ้ง Wave รีบไปเข้า...")
-                            
-                            local doorModel = obj:FindFirstAncestorOfClass("Model")
-                            local prompt = doorModel and doorModel:FindFirstChildWhichIsA("ProximityPrompt", true)
-                            
-                            if prompt then
+                            if string.find(textLower, "challenge in") then
+                                UI_BossStatus:SetText("สถานะบอส: ⏳ " .. timerLabel.Text)
+                                if not string.find(UI_BossStatus.Text, "เข้าประตู") then 
+                                    IsDoingEvent = false 
+                                end
+                                
+                            elseif string.find(textLower, "now") or obj.Enabled == true then
+                                IsDoingEvent = true
+                                UI_BossStatus:SetText("สถานะบอส: ⚔️ บอสเปิดแล้ว! กำลังวาร์ปไปเข้าประตู...")
+                                
                                 hrp.Velocity = Vector3.zero
-                                hrp.CFrame = prompt.Parent.CFrame * CFrame.new(0, 0, 3)
+                                hrp.CFrame = obj.Parent.CFrame * CFrame.new(0, 0, 3)
                                 task.wait(0.2)
                                 
                                 if Remotes and Remotes:FindFirstChild("Start") and Remotes.Start:FindFirstChild("EndWave") then 
                                     Remotes.Start.EndWave:FireServer() 
                                 end
                                 
-                                UI_BossStatus:SetText("สถานะบอส: ⚡ กำลังแย่งจังหวะกดเข้าประตู!")
-                                for i = 1, 20 do firePrompt(prompt); task.wait(0.05) end
-                                UI_BossStatus:SetText("สถานะบอส: ✅ เข้าประตู Challenge แล้ว!")
-                                task.wait(5)
+                                UI_BossStatus:SetText("สถานะบอส: ⚡ กำลังกดเข้าประตูท้าทายบอสบิลส์!")
+                                for i = 1, 15 do 
+                                    firePrompt(obj) 
+                                    task.wait(0.05) 
+                                end
+                                
+                                UI_BossStatus:SetText("สถานะบอส: ✅ เข้าประตูสำเร็จแล้ว!")
+                                task.wait(5) 
                             end
                         end
+                        break 
                     end
                 end
-                
-                if not foundBossSign then UI_BossStatus:SetText("สถานะบอส: 🔍 กำลังค้นหาประตูบอส...") end
+            end)
+            
+            -- 🎰 4. ระบบแถม: ตรวจเช็คและออโต้สปินวงล้อ Beerus หลังบ้านทันที (Bypass อนิเมชั่น)
+            pcall(function()
+                local bSpinRemote = Remotes and Remotes:FindFirstChild("SpinWheel") and Remotes.SpinWheel:FindFirstChild("BeerusSpin")
+                if bSpinRemote and client then
+                    local currentSpins = client:get({"BeerusSpin"}) or 0
+                    if tonumber(currentSpins) and tonumber(currentSpins) > 0 then
+                        UI_BossStatus:SetText("สถานะบอส: 🎰 พบแต้มสปินบอส ["..tostring(currentSpins).."] แต้ม! กำลังรับของรางวัล...")
+                        bSpinRemote:FireServer("Spin")
+                        task.wait(0.5)
+                        bSpinRemote:FireServer("Complete", {NotifyText = "AutoRollPRO Bypass"})
+                        task.wait(0.5)
+                    end
+                end
             end)
         else
             UI_BossStatus:SetText("สถานะบอส: 🔴 ปิดการทำงาน")
@@ -776,7 +772,7 @@ task.spawn(function()
 
         task.wait(1)
     end
-end) -- สิ้นสุดลูป Event & Boss ทั้งหมดตรงนี้อย่างถูกต้อง
+end)
 
 
 -- ==========================================
