@@ -623,10 +623,19 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันตรวจจับเกรดอุกกาบาตแม่นยำสูง)
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันปลดล็อกบัคกล่อง VIP Chest 100%)
                         if Config.AutoMeteor then
                             local modelName = obj.Parent and obj.Parent.Name or ""
-                            if string.find(aText, "meteor") or string.find(oName, "meteor") or string.find(aText, "claim") or 
+                            local parentNameLower = string.lower(modelName)
+                            
+                            -- ⭐ ขั้นตอนคัดกรองสูงสุด: ดักจับและสั่งบอทข้ามวัตถุกล่องของรางวัลสิทธิ์ VIP ทันทีเพื่อป้องกันการวาร์ปค้าง
+                            if string.find(parentNameLower, "vip") or string.find(parentNameLower, "chest") or string.find(parentNameLower, "daily") or string.find(oName, "vip") then
+                                return -- สั่งข้ามห้ามเดินไปแตะเด็ดขาด!
+                            end
+                            
+                            -- ล็อคเป้าตรวจสอบเฉพาะเงื่อนไขไอเทมอุกกาบาตตกของแท้ดั้งเดิม
+                            if string.find(aText, "meteor") or string.find(oName, "meteor") or 
+                               (string.find(aText, "claim") and not string.find(aText, "daily")) or -- คัดเอาเฉพาะคำว่า claim ที่ไม่มีคำว่า daily พ่วงท้าย
                                modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
                                 
                                 IsDoingEvent = true
@@ -646,7 +655,7 @@ task.spawn(function()
                                 
                                 for i = 1, 12 do 
                                     for _, v in pairs(playerGui:GetDescendants()) do
-                                        if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") then
+                                        if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") and not string.find(string.lower(v.Text), "daily") then
                                             if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
                                             v.MouseButton1Click:Fire()
                                         end
@@ -656,7 +665,6 @@ task.spawn(function()
                                 IsDoingEvent = false
                             end
                         end
-                    end
                 end
             end)
         end
