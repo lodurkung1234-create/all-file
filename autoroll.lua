@@ -569,7 +569,7 @@ EventGroup:AddToggle("AutoMeteorToggle", {
     end 
 })
 
--- 🚀 ลูป Event แบบรวมศูนย์ (แก้บัคโครงสร้างแล้ว)
+-- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันแก้ไขการดักจับข้อความและตำแหน่ง CFrame)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -577,9 +577,6 @@ task.spawn(function()
         local hum = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
         local Remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
         
-        -- ==========================================
-        -- 1. ระบบ Collect Orb, Make Wish, Meteor (สแกน Prompt)
-        -- ==========================================
         if (Config.AutoCollectOrb or Config.AutoMakeWish or Config.AutoMeteor) and hrp and hum then
             pcall(function()
                 for _, obj in pairs(workspace:GetDescendants()) do
@@ -587,56 +584,87 @@ task.spawn(function()
                         local aText = string.lower(obj.ActionText or "")
                         local oName = string.lower(obj.Name or "")
                         
-                        -- 🟢 Collect Orb
+                        -- คำนวณตำแหน่ง CFrame ของวัตถุให้ถูกต้องและปลอดภัยจากขอบเขต Scope
+                        local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
+                                         (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
+                        
+                        -- 🟢 1. ระบบ Collect Orb
                         if Config.AutoCollectOrb and (aText == "collect" or oName == "collect") then
                             IsDoingEvent = true
                             hrp.Velocity = Vector3.zero
-                            hrp.CFrame = obj.Parent:GetPivot() * CFrame.new(0, 2, 0)
+                            hrp.CFrame = promptCF * CFrame.new(0, 2, 0)
                             task.wait(0.3)
                             for i = 1, 3 do firePrompt(obj); task.wait(0.1) end
                             task.wait(1)
                             IsDoingEvent = false
                         end
 
-                        -- 🐉 Make a Wish
-                        if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish")) then
+                        -- 🐉 2. ระบบมังกร (Make a wish) ฉบับบังคับกดเข้าหน้าต่างแม่
+                        if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish") or string.find(aText, "wish")) then
                             IsDoingEvent = true
-                            local promptCF = obj.Parent:GetPivot()
                             hrp.Velocity = Vector3.zero
                             hrp.Anchored = true 
                             hrp.CFrame = promptCF * CFrame.new(0, -2, 5)
                             hrp.CFrame = CFrame.lookAt(hrp.Position, promptCF.Position)
                             task.wait(0.5)
-                            firePrompt(obj)
-                            task.wait(1.5)
                             
-                            local targetWish = string.lower(Config.WishChoice or "million")
-                            for _, v in pairs(playerGui:GetDescendants()) do
-                                if v:IsA("TextButton") then
-                                    local txt = string.lower(v.Text)
-                                    if string.find(txt, targetWish) or string.find(txt, "make wish") then
-                                        if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                        v.MouseButton1Click:Fire()
-                                        task.wait(0.3)
+                            -- เปิดหน้าต่าง
+                            firePrompt(obj)
+                            
+                            -- ค้นหากรอบหน้าต่างหลัก (uiParent) เพื่อความแม่นยำ
+                            local uiParent = nil
+                            for i = 1, 15 do
+                                task.wait(0.2)
+                                for _, v in pairs(playerGui:GetDescendants()) do
+                                    if v:IsA("TextButton") and string.find(string.lower(v.Text), "make wish") then
+                                        uiParent = v:FindFirstAncestorOfClass("Frame")
+                                        if uiParent then break end
+                                    end
+                                end
+                                if uiParent then break end
+                            end
+                            
+                            if uiParent then
+                                -- เลือกพรฝั่งซ้าย
+                                local targetWish = string.lower(Config.WishChoice or "million")
+                                for _, btn in pairs(uiParent:GetDescendants()) do
+                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), targetWish) then
+                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
+                                        btn.MouseButton1Click:Fire()
+                                        task.wait(0.5)
+                                        break
+                                    end
+                                end
+                                
+                                -- กด Make Wish ยืนยันฝั่งขวา
+                                for _, btn in pairs(uiParent:GetDescendants()) do
+                                    if btn:IsA("TextButton") and string.find(string.lower(btn.Text), "make wish") then
+                                        if getconnections then for _, c in pairs(getconnections(btn.MouseButton1Click)) do c:Fire() end end
+                                        btn.MouseButton1Click:Fire()
+                                        break 
                                     end
                                 end
                             end
+                            
                             hrp.Anchored = false
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ Meteor & Auto Claim
-                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or (aText == "claim")) then
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (แก้ปัญหาตัวลอยแขนชี้ฟ้า + เคลียร์ Stack ของดร็อป)
+                        if Config.AutoMeteor and (string.find(aText, "meteor") or string.find(oName, "meteor") or string.find(aText, "claim")) then
                             IsDoingEvent = true
-                            local promptCF = obj.Parent:GetPivot()
+                            
+                            -- วาร์ปเว้นระยะและปรับสถานะให้เท้าแตะพื้นยืนตรงก่อนกด
                             hrp.Velocity = Vector3.zero
                             hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 0.5, 5))
                             hum:ChangeState(Enum.HumanoidStateType.GettingUp)
                             hum.Jump = true 
                             task.wait(0.4)
                             
+                            -- กดรับอุกกาบาต
                             for i = 1, 5 do firePrompt(obj); task.wait(0.3) end
                             
+                            -- วนลูปสแกนหน้าจอเพื่อเคลียร์ปุ่ม Claim ทันที
                             for i = 1, 10 do 
                                 for _, v in pairs(playerGui:GetDescendants()) do
                                     if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") then
