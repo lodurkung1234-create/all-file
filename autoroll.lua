@@ -59,7 +59,7 @@ local UI_WebhookLog = WebhookLogGroup:AddLabel("ยังไม่มีกา�
 ListGroup:AddDropdown("ListDropdown", { Text = "รายการทั้งหมด", Values = {"(ไม่มีรายการ)"}, Default = 1, Callback = function() end })
 
 -- ==========================================
--- ⚙️ ค่าเริ่มต้นระบบต่างๆ และดึง DataService (ย้ายมาดักเพื่อ Global Scope)
+-- ⚙️ ค่าเริ่มต้นระบบต่างๆ และดึง DataService
 -- ==========================================
 local Config = { 
     AutoRoll = false, RollDelay = 1, MasterAutoBuy = false, 
@@ -68,6 +68,7 @@ local Config = {
     WebhookURL = "", WebhookEnabled = false,
     -- Event Configs
     AutoBuharaEvent = false, AutoCollectOrb = false, AutoMakeWish = false, AutoChallengeBoss = false, AutoStartWave = false,
+    AutoMeteor = false, -- เปลี่ยนชื่อตัวแปรภายในให้สอดคล้องกับระบบอุกกาบาต
     WishChoice = "MillionDollars"
 }
 local BuyList = {}
@@ -255,7 +256,7 @@ RollGroup:AddToggle("MutArrancarToggle", { Text = "✔️ Arrancar", Default = f
 RollGroup:AddToggle("MutBeastToggle", { Text = "✔️ Beast", Default = false, Callback = function(V) Config.MutBeast = V end })
 RollGroup:AddToggle("MutDragonbornToggle", { Text = "✔️ Dragonborn", Default = false, Callback = function(V) Config.MutDragonborn = V end })
 
--- 🛡️ Auto Start Wave System (เวอร์ชันแก้บัค 100%)
+-- 🛡️ Auto Start Wave System
 task.spawn(function()
     local checkStuck = 0 
     
@@ -571,6 +572,7 @@ EventGroup:AddDropdown("WishDropdown", {
     end 
 })
 
+-- ⭐ ปรับปรุงการผูกชื่อปุ่ม Toggle ให้ตรงกับรูปภาพ UI ของคุณ (image_4970d3.png)
 EventGroup:AddToggle("AutoMeteorToggle", { 
     Text = "Auto ตามเก็บอุกกาบาต & สปิน", 
     Default = false, 
@@ -579,7 +581,7 @@ EventGroup:AddToggle("AutoMeteorToggle", {
     end 
 })
 
--- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันแก้ไขการดักจับข้อความและตำแหน่ง CFrame)
+-- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันแก้ไขการดักจับข้อความแฝง VIP Chest)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -594,7 +596,7 @@ task.spawn(function()
                         local aText = string.lower(obj.ActionText or "")
                         local oName = string.lower(obj.Name or "")
                         
-                        -- คำนวณตำแหน่ง CFrame ของวัตถุให้ถูกต้องและปลอดภัยจากขอบเขต Scope
+                        -- คำนวณตำแหน่ง CFrame ของวัตถุให้ถูกต้อง
                         local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
                                          (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
                         
@@ -609,7 +611,7 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- 🐉 2. ระบบมังกร (Make a wish) เวอร์ชันยิง Remote ข้ามมิติ (ไม่ต้องง้อ UI และปุ่ม)
+                        -- 🐉 2. ระบบมังกร (Make a wish)
                         if Config.AutoMakeWish and (string.find(aText, "make a wish") or string.find(oName, "make a wish") or string.find(aText, "wish")) then
                             IsDoingEvent = true
                             pcall(function()
@@ -623,48 +625,49 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันปลดล็อกบัคกล่อง VIP Chest 100%)
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (เวอร์ชันตรวจเช็คสูงสุด สลัดบัคกล่อง VIP Chest ทิ้ง 100%)
                         if Config.AutoMeteor then
                             local modelName = obj.Parent and obj.Parent.Name or ""
                             local parentNameLower = string.lower(modelName)
                             
-                            -- ⭐ ขั้นตอนคัดกรองสูงสุด: ดักจับและสั่งบอทข้ามวัตถุกล่องของรางวัลสิทธิ์ VIP ทันทีเพื่อป้องกันการวาร์ปค้าง
+                            -- ⭐ เงื่อนไขหัวใจสำคัญ: คัดกรองคัตเอาท์โมเดลกล่องรับของสิทธิ์ VIP ออกจากการคำนวณทั้งหมดเพื่อป้องกันการวาร์ปค้างค่าย
                             if string.find(parentNameLower, "vip") or string.find(parentNameLower, "chest") or string.find(parentNameLower, "daily") or string.find(oName, "vip") then
-                                return -- สั่งข้ามห้ามเดินไปแตะเด็ดขาด!
-                            end
-                            
-                            -- ล็อคเป้าตรวจสอบเฉพาะเงื่อนไขไอเทมอุกกาบาตตกของแท้ดั้งเดิม
-                            if string.find(aText, "meteor") or string.find(oName, "meteor") or 
-                               (string.find(aText, "claim") and not string.find(aText, "daily")) or -- คัดเอาเฉพาะคำว่า claim ที่ไม่มีคำว่า daily พ่วงท้าย
-                               modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
-                                
-                                IsDoingEvent = true
-                                hrp.Velocity = Vector3.zero
-                                hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 1, 3))
-                                
-                                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                                hum.Jump = true 
-                                task.wait(0.3)
-                                
-                                UI_StatusLabel:SetText("สถานะ: ☄️ พบอุกกาบาตเกรด [" .. modelName .. "] กำลังเก็บของรางวัล...")
-                                
-                                for i = 1, 5 do 
-                                    firePrompt(obj) 
-                                    task.wait(0.2) 
-                                end
-                                
-                                for i = 1, 12 do 
-                                    for _, v in pairs(playerGui:GetDescendants()) do
-                                        if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") and not string.find(string.lower(v.Text), "daily") then
-                                            if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                            v.MouseButton1Click:Fire()
-                                        end
+                                -- สั่งข้ามผ่านทันที ห้ามหันตัวแปรไปแตะเด็ดขาด!
+                            else
+                                -- ตรวจสอบคุณสมบัติเมื่อตรงตามสเปกหินอุกกาบาตของจริง
+                                if string.find(aText, "meteor") or string.find(oName, "meteor") or 
+                                   (string.find(aText, "claim") and not string.find(aText, "daily")) or -- เจาะจงเฉพาะปุ่ม claim ที่ไม่มีคำว่า daily แฝงอยู่
+                                   modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
+                                    
+                                    IsDoingEvent = true
+                                    hrp.Velocity = Vector3.zero
+                                    hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 1, 3))
+                                    
+                                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                                    hum.Jump = true 
+                                    task.wait(0.3)
+                                    
+                                    UI_StatusLabel:SetText("สถานะ: ☄️ พบอุกกาบาตเกรด [" .. modelName .. "] กำลังเก็บของรางวัล...")
+                                    
+                                    for i = 1, 5 do 
+                                        firePrompt(obj) 
+                                        task.wait(0.2) 
                                     end
-                                    task.wait(0.2)
+                                    
+                                    for i = 1, 12 do 
+                                        for _, v in pairs(playerGui:GetDescendants()) do
+                                            if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") and not string.find(string.lower(v.Text), "daily") then
+                                                if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                                v.MouseButton1Click:Fire()
+                                            end
+                                        end
+                                        task.wait(0.2)
+                                    end
+                                    IsDoingEvent = false
                                 end
-                                IsDoingEvent = false
                             end
                         end
+                    end
                 end
             end)
         end
@@ -715,7 +718,7 @@ task.spawn(function()
         end
 
         -- ==========================================
-        -- 3. ลูป Challenge Boss (เวอร์ชันเชื่อมระบบ RestockGUI เจาะจงป้ายบอส 100%)
+        -- 3. ลูป Challenge Boss
         -- ==========================================
         if Config.AutoChallengeBoss and hrp then
             pcall(function()
@@ -760,7 +763,6 @@ task.spawn(function()
                 end
             end)
             
-            -- 🎰 4. ระบบแถม: ตรวจเช็คและออโต้สปินวงล้อ Beerus หลังบ้านทันที (Bypass อนิเมชั่น)
             pcall(function()
                 local bSpinRemote = Remotes and Remotes:FindFirstChild("SpinWheel") and Remotes.SpinWheel:FindFirstChild("BeerusSpin")
                 if bSpinRemote and client then
@@ -781,7 +783,6 @@ task.spawn(function()
         task.wait(1)
     end
 end)
-
 
 -- ==========================================
 -- 📊 ระบบ Drop Tracker
