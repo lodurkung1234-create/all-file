@@ -143,7 +143,6 @@ task.spawn(function()
     local function fixAnimateScript(tool)
         if tool:IsA("Tool") and tool:FindFirstChild("Animate") then
             local animateScript = tool.Animate
-            -- สแกนเปลี่ยนเป้าหมายภายในตัวสคริปต์ของกระเป๋าให้รองรับโครงสร้าง R15 ทันที
             for _, child in pairs(animateScript:GetDescendants()) do
                 if child:IsA("StringValue") and child.Value == "Torso" then
                     child.Value = "UpperTorso"
@@ -596,7 +595,7 @@ EventGroup:AddToggle("AutoMeteorToggle", {
     end 
 })
 
--- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันเสถียรสูงสุด - แก้บัควาร์ป VIP Chest)
+-- 🚀 ลูป Event แบบรวมศูนย์ (เวอร์ชันเสถียรสูงสุด - คัดกรองหน้าต่างสรุปผล Reward แยกขาดจากอุกกาบาต)
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -611,7 +610,6 @@ task.spawn(function()
                         local aText = string.lower(obj.ActionText or "")
                         local oName = string.lower(obj.Name or "")
                         
-                        -- คำนวณตำแหน่ง CFrame ของวัตถุ
                         local promptCF = obj.Parent:IsA("Attachment") and obj.Parent.WorldCFrame or 
                                          (obj.Parent:IsA("BasePart") and obj.Parent.CFrame or obj.Parent:GetPivot())
                         
@@ -640,44 +638,55 @@ task.spawn(function()
                             IsDoingEvent = false
                         end
 
-                        -- ☄️ 3. ระบบ Meteor & Auto Claim (⭐ แก้ไขจุดกรอง VIP Chest ห้ามวาร์ปเอ๋อ)
+                        -- ☄️ 3. ระบบ Meteor & Auto Claim (⭐ แก้ไขป้องกันการวาร์ปค้างหน้าต่างสรุปผล Reward)
                         if Config.AutoMeteor then
                             local modelName = obj.Parent and obj.Parent.Name or ""
                             local parentNameLower = string.lower(modelName)
                             
-                            -- ดักจับสิ่งกีดขวางจำพวกกล่องสิทธิ์ VIP เพื่อตัดออกจากลูปการทำงาน
+                            -- ดักจับระบบเพื่อข้ามการวาร์ปทับสิ่งกีดขวาง VIP และหน้าต่างสรุปผลแมทช์กลางจอ
                             if string.find(parentNameLower, "vip") or string.find(parentNameLower, "chest") or string.find(parentNameLower, "daily") or string.find(oName, "vip") then
-                                -- ข้ามวัตถุชิ้นนี้ทันที
+                                -- สั่งข้าม
                             else
                                 if string.find(aText, "meteor") or string.find(oName, "meteor") or 
-                                   (string.find(aText, "claim") and not string.find(aText, "daily")) or -- คัดเอาปุ่ม claim ที่ไม่เกี่ยวกับ daily
+                                   (string.find(aText, "claim") and not string.find(aText, "daily")) or
                                    modelName == "Basic" or modelName == "Op" or modelName == "Godly" then
                                     
-                                    IsDoingEvent = true
-                                    hrp.Velocity = Vector3.zero
-                                    hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 1, 3))
-                                    
-                                    hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-                                    hum.Jump = true 
-                                    task.wait(0.3)
-                                    
-                                    UI_StatusLabel:SetText("สถานะ: ☄️ พบอุกกาบาตเกรด [" .. modelName .. "] กำลังเก็บของรางวัล...")
-                                    
-                                    for i = 1, 5 do 
-                                        firePrompt(obj) 
-                                        task.wait(0.2) 
-                                    end
-                                    
-                                    for i = 1, 12 do 
-                                        for _, v in pairs(playerGui:GetDescendants()) do
-                                            if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") and not string.find(string.lower(v.Text), "daily") then
-                                                if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
-                                                v.MouseButton1Click:Fire()
-                                            end
+                                    -- ตรวจสอบเพิ่มเติมว่าปุ่ม Claim นั้นไม่ได้อยู่ใน Frame สรุปผลแมทช์กลางหน้าจอ (ป้องกันบัคภาพ Screenshot 2026-07-04 210946.png)
+                                    local isGameRewardUI = false
+                                    pcall(function()
+                                        if playerGui:FindFirstChild("MainUI") and playerGui.MainUI.Frames:FindFirstChild("Reward") then
+                                            isGameRewardUI = playerGui.MainUI.Frames.Reward.Visible
                                         end
-                                        task.wait(0.2)
+                                    end)
+                                    
+                                    if not isGameRewardUI then
+                                        IsDoingEvent = true
+                                        hrp.Velocity = Vector3.zero
+                                        hrp.CFrame = CFrame.new(promptCF.Position + Vector3.new(0, 1, 3))
+                                        
+                                        hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+                                        hum.Jump = true 
+                                        task.wait(0.3)
+                                        
+                                        UI_StatusLabel:SetText("สถานะ: ☄️ พบอุกกาบาตเกรด [" .. modelName .. "] กำลังเก็บของรางวัล...")
+                                        
+                                        for i = 1, 5 do 
+                                            firePrompt(obj) 
+                                            task.wait(0.2) 
+                                        end
+                                        
+                                        for i = 1, 12 do 
+                                            for _, v in pairs(playerGui:GetDescendants()) do
+                                                -- คอนเฟิร์มการกด Claim เฉพาะปุ่มที่ไม่ใช่ป้ายสรุปผลแมทช์กลางจอ
+                                                if v:IsA("TextButton") and string.find(string.lower(v.Text), "claim") and not string.find(string.lower(v.Text), "daily") and v.Parent.Name ~= "Reward" then
+                                                    if getconnections then for _, c in pairs(getconnections(v.MouseButton1Click)) do c:Fire() end end
+                                                    v.MouseButton1Click:Fire()
+                                                end
+                                            end
+                                            task.wait(0.2)
+                                        end
+                                        IsDoingEvent = false
                                     end
-                                    IsDoingEvent = false
                                 end
                             end
                         end
